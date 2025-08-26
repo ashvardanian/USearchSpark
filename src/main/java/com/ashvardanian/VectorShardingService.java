@@ -25,8 +25,8 @@ public class VectorShardingService {
         logger.info("Total vectors: {}, creating {} shards", totalVectors, numShards);
 
         // Simple hash-based sharding
-        Dataset<Row> shardedData = embeddings.withColumn("shard_id", 
-            expr("abs(hash(id)) % " + numShards));
+        Dataset<Row> shardedData = embeddings.withColumn("shard_id",
+                expr("abs(hash(id)) % " + numShards));
 
         logger.info("Saving sharded data");
         shardedData.write()
@@ -45,10 +45,9 @@ public class VectorShardingService {
         shardCounts.show();
 
         Row stats = shardCounts.agg(
-            max("count").alias("max_count"),
-            min("count").alias("min_count"),
-            avg("count").alias("avg_count")
-        ).first();
+                max("count").alias("max_count"),
+                min("count").alias("min_count"),
+                avg("count").alias("avg_count")).first();
 
         logger.info("Sharding statistics:");
         logger.info("  Max vectors per shard: {}", stats.getLong(0));

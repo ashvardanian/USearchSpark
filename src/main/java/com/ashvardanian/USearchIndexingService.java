@@ -30,9 +30,9 @@ public class USearchIndexingService {
         Row firstRow = shardedData.select("embedding").first();
         List<Double> firstEmbedding = firstRow.getList(0);
         int actualVectorDimensions = firstEmbedding.size();
-        
+
         logger.info("Detected actual vector dimensions: {}", actualVectorDimensions);
-        
+
         // Get distinct shard IDs
         List<Row> shardIds = shardedData.select("shard_id").distinct().collectAsList();
 

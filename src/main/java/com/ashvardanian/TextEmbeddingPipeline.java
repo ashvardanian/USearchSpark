@@ -60,7 +60,7 @@ public class TextEmbeddingPipeline {
                 .setOutputCol("tokens");
 
         Pipeline pipeline = new Pipeline()
-                .setStages(new org.apache.spark.ml.PipelineStage[]{tokenizer, stopWordsRemover});
+                .setStages(new org.apache.spark.ml.PipelineStage[] { tokenizer, stopWordsRemover });
 
         return pipeline.fit(df).transform(df)
                 .filter(size(col("tokens")).gt(0))
@@ -81,7 +81,7 @@ public class TextEmbeddingPipeline {
                 .setMinDocFreq(2);
 
         Pipeline pipeline = new Pipeline()
-                .setStages(new org.apache.spark.ml.PipelineStage[]{hashingTF, idf});
+                .setStages(new org.apache.spark.ml.PipelineStage[] { hashingTF, idf });
 
         Dataset<Row> result = pipeline.fit(df).transform(df);
 
@@ -91,7 +91,6 @@ public class TextEmbeddingPipeline {
                 col("text"),
                 udf((Vector v) -> v.toArray(), org.apache.spark.sql.types.DataTypes.createArrayType(
                         org.apache.spark.sql.types.DataTypes.DoubleType))
-                        .apply(col("features")).as("embedding")
-        );
+                        .apply(col("features")).as("embedding"));
     }
 }
