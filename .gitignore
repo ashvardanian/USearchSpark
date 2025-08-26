@@ -1,5 +1,7 @@
 .gradle/
 build/
+/data/
+/datasets/
 
 # Compiled class file
 *.class

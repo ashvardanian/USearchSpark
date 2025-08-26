@@ -13,6 +13,9 @@
         "editor.formatOnSave": false
     },
     "cSpell.words": [
-        "ashvardanian"
+        "ashvardanian",
+        "HNSW",
+        "Lucene",
+        "usearch"
     ]
 }

@@ -1,18 +1,48 @@
 plugins {
     id 'java'
+    id 'application'
 }
 
 group = 'com.ashvardanian'
 version = '0.1.0-SNAPSHOT'
 
+// Configure main class for application plugin
+application {
+    mainClass = 'com.ashvardanian.USearchSpark'
+    
+    // Java 21 compatibility with Spark 4.0
+    applicationDefaultJvmArgs = [
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang.reflect=ALL-UNNAMED',
+        '--add-opens=java.base/java.io=ALL-UNNAMED',
+        '--add-opens=java.base/java.net=ALL-UNNAMED',
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.util.concurrent=ALL-UNNAMED',
+        '--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED',
+        '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens=java.base/sun.nio.cs=ALL-UNNAMED',
+        '--add-opens=java.base/sun.security.action=ALL-UNNAMED',
+        '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
+        '--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED',
+        '-Djava.library.path=/tmp'
+    ]
+}
+
 repositories {
     mavenCentral()
+    
+    // Custom repository for USearch JAR
+    flatDir {
+        dirs 'lib'
+    }
 }
 
 // Task to download USearch JAR from GitHub releases
 task downloadUSearchJar {
     doLast {
-        def usearchVersion = '2.19.9'
+        def usearchVersion = '2.19.23'
         def usearchUrl = "https://github.com/unum-cloud/usearch/releases/download/v${usearchVersion}/usearch-${usearchVersion}.jar"
         def usearchFile = file("lib/usearch-${usearchVersion}.jar")
         
@@ -30,16 +60,24 @@ task downloadUSearchJar {
 compileJava.dependsOn downloadUSearchJar
 
 dependencies {
-    // Spark 3.5 dependencies (provided scope)  
-    compileOnly 'org.apache.spark:spark-core_2.12:3.5.3'
-    compileOnly 'org.apache.spark:spark-sql_2.12:3.5.3'
-    compileOnly 'org.apache.spark:spark-mllib_2.12:3.5.3'
+    // Spark 4.0 dependencies (implementation for gradle run, provided for spark-submit)
+    implementation 'org.apache.spark:spark-core_2.13:4.0.0'
+    implementation 'org.apache.spark:spark-sql_2.13:4.0.0'
+    implementation 'org.apache.spark:spark-mllib_2.13:4.0.0'
     
-    // USearch JAR from local lib directory
-    implementation files('lib/usearch-2.19.9.jar')
+    // USearch JAR from local lib directory (downloaded automatically)
+    implementation name: 'usearch', version: '2.19.23', ext: 'jar'
+    
+    // Apache Lucene for HNSW baseline
+    implementation 'org.apache.lucene:lucene-core:9.12.0'
+    implementation 'org.apache.lucene:lucene-queryparser:9.12.0'
     
     // JSON processing
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    
+    // Cloud storage support (removed for now to fix JAR size issues)
+    // implementation 'org.apache.hadoop:hadoop-aws:3.3.4'
+    // implementation 'com.amazonaws:aws-java-sdk-s3:1.12.262'
     
     // Logging
     implementation 'org.slf4j:slf4j-simple:1.7.36'
@@ -49,14 +87,37 @@ dependencies {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 jar {
     manifest {
         attributes(
-            'Main-Class': 'com.ashvardanian.USearchSparkApp'
+            'Main-Class': 'com.ashvardanian.USearchSpark'
         )
     }
+    
+    // Regular JAR for gradle run (dependencies managed by gradle)
+    archiveClassifier = ''
+}
+
+// Separate fat JAR task for spark-submit
+task fatJar(type: Jar) {
+    manifest {
+        attributes(
+            'Main-Class': 'com.ashvardanian.USearchSpark'
+        )
+    }
+    
+    archiveClassifier = 'all'
+    zip64 true
+    
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    
+    from sourceSets.main.output
+    
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
