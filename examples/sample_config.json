@@ -1,0 +1,31 @@
+{
+  "pipeline": {
+    "input_path": "/data/text_corpus",
+    "output_path": "/data/vectors",
+    "vector_dimensions": 512,
+    "vectors_per_shard": 1000000000
+  },
+  "embedding": {
+    "model_type": "tfidf_svd",
+    "tfidf_features": 1024,
+    "svd_components": 512,
+    "min_doc_freq": 2
+  },
+  "sharding": {
+    "strategy": "semantic_clustering",
+    "max_vectors_per_shard": 1000000000,
+    "clustering_sample_rate": 0.01,
+    "kmeans_iterations": 10
+  },
+  "indexing": {
+    "index_type": "hnsw",
+    "connectivity": 16,
+    "ef_construction": 200,
+    "ef_search": 50
+  },
+  "query": {
+    "default_top_k": 10,
+    "search_timeout_ms": 30000,
+    "parallel_search_threads": 10
+  }
+}

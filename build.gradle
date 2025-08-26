@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.ashvardanian'
+version = '0.1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+// Task to download USearch JAR from GitHub releases
+task downloadUSearchJar {
+    doLast {
+        def usearchVersion = '2.19.9'
+        def usearchUrl = "https://github.com/unum-cloud/usearch/releases/download/v${usearchVersion}/usearch-${usearchVersion}.jar"
+        def usearchFile = file("lib/usearch-${usearchVersion}.jar")
+        
+        usearchFile.parentFile.mkdirs()
+        if (!usearchFile.exists()) {
+            new URL(usearchUrl).withInputStream { i ->
+                usearchFile.withOutputStream { it << i }
+            }
+            println "Downloaded USearch JAR: ${usearchFile.name}"
+        }
+    }
+}
+
+// Make compilation depend on downloading USearch
+compileJava.dependsOn downloadUSearchJar
+
+dependencies {
+    // Spark 3.5 dependencies (provided scope)  
+    compileOnly 'org.apache.spark:spark-core_2.12:3.5.3'
+    compileOnly 'org.apache.spark:spark-sql_2.12:3.5.3'
+    compileOnly 'org.apache.spark:spark-mllib_2.12:3.5.3'
+    
+    // USearch JAR from local lib directory
+    implementation files('lib/usearch-2.19.9.jar')
+    
+    // JSON processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    
+    // Logging
+    implementation 'org.slf4j:slf4j-simple:1.7.36'
+    
+    // Test dependencies
+    testImplementation 'junit:junit:4.13.2'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'com.ashvardanian.USearchSparkApp'
+        )
+    }
+}

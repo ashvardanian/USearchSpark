@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  usearch-spark:
+    build: .
+    volumes:
+      - ./README.md:/input:ro
+      - ./output:/output
+    command: >
+      /opt/spark/bin/spark-submit
+      --class com.ashvardanian.USearchSparkApp
+      --master local[*]
+      --driver-memory 2g
+      --executor-memory 4g
+      --conf spark.sql.adaptive.enabled=true
+      --conf spark.serializer=org.apache.spark.serializer.KryoSerializer
+      --jars /app/lib/usearch-2.19.9.jar
+      /app/USearchSpark-0.1.0-SNAPSHOT.jar
+      /input
+      /output
+      512
+      1000000000
+    environment:
+      - JAVA_HOME=/opt/java/openjdk
