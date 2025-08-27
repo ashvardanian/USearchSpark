@@ -1,23 +1,17 @@
-FROM apache/spark:3.5.3-scala2.12-java17-python3-ubuntu
+# Use official Apache Spark image as base
+FROM apache/spark:v3.5.1-scala2.12-java17-python3-r-ubuntu
 
-# Switch to root to install additional packages  
-USER root
+# Set working directory
+WORKDIR /opt/spark/work-dir
 
-# Java 17 is already installed in the base image  
-ENV JAVA_HOME=/opt/java/openjdk
+# Copy the compiled JAR
+COPY build/libs/USearchSpark-1.0-SNAPSHOT.jar /opt/spark/examples/jars/usearch-spark.jar
 
-# Create working directory
-WORKDIR /app
+# Copy dependencies (if any)
+COPY build/libs/*.jar /opt/spark/examples/jars/
 
-# Copy the built JAR and dependencies
-COPY build/libs/USearchSpark-0.1.0-SNAPSHOT.jar /app/
-COPY lib/usearch-2.19.9.jar /app/lib/
-
-# Create output directory and set permissions
-RUN mkdir -p /output && chmod -R 777 /output && chmod -R 755 /app
-
-# Run as root to avoid permission issues
-USER root
+# Set the user to spark (for security)
+USER spark
 
 # Default command
-CMD ["/opt/spark/bin/spark-submit", "--help"]
+CMD ["spark-submit", "--class", "com.ashvardanian.USearchSpark", "/opt/spark/examples/jars/usearch-spark.jar"]

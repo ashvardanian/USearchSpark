@@ -113,6 +113,43 @@ public class BinaryVectorLoader {
             
             return result;
         }
+        
+        public byte[] getVectorAsByte(int index) {
+            if (index >= rows) {
+                throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
+            }
+
+            byte[] result = new byte[cols];
+            int offset = index * cols * type.getByteSize();
+            
+            switch (type) {
+                case INT8:
+                    for (int i = 0; i < cols; i++) {
+                        result[i] = data.get(offset + i);
+                    }
+                    break;
+                case FLOAT32:
+                    // Convert float to byte for I8 quantization
+                    for (int i = 0; i < cols; i++) {
+                        float value = data.getFloat(offset + i * Float.BYTES);
+                        result[i] = (byte) Math.round(value * 127.0f);
+                    }
+                    break;
+                default:
+                    // Convert other types to byte via float
+                    float[] floatVector = getVectorAsFloat(index);
+                    for (int i = 0; i < cols; i++) {
+                        result[i] = (byte) Math.round(floatVector[i] * 127.0f);
+                    }
+                    break;
+            }
+            
+            return result;
+        }
+        
+        public boolean isI8Data() {
+            return type == VectorType.INT8;
+        }
 
         public float[][] getAllVectors() {
             float[][] result = new float[rows][cols];

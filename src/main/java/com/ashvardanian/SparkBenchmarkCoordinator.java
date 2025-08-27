@@ -1,19 +1,25 @@
 package com.ashvardanian;
 
-import org.apache.spark.sql.SparkSession;
-import org.apache.spark.util.LongAccumulator;
-import org.apache.spark.broadcast.Broadcast;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
-
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.util.LongAccumulator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 
 public class SparkBenchmarkCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(SparkBenchmarkCoordinator.class);
@@ -23,12 +29,12 @@ public class SparkBenchmarkCoordinator {
         private final BenchmarkConfig.BenchmarkMode mode;
         private final long totalTimeMs;
         private final Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults;
-        private final LuceneHNSWBenchmark.BenchmarkResult luceneResult;
+        private final LuceneBenchmark.BenchmarkResult luceneResult;
         private final long timestamp;
 
         public BenchmarkResults(String datasetName, BenchmarkConfig.BenchmarkMode mode, long totalTimeMs,
-                              Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
-                              LuceneHNSWBenchmark.BenchmarkResult luceneResult) {
+                Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
+                LuceneBenchmark.BenchmarkResult luceneResult) {
             this.datasetName = datasetName;
             this.mode = mode;
             this.totalTimeMs = totalTimeMs;
@@ -38,12 +44,29 @@ public class SparkBenchmarkCoordinator {
         }
 
         // Getters
-        public String getDatasetName() { return datasetName; }
-        public BenchmarkConfig.BenchmarkMode getMode() { return mode; }
-        public long getTotalTimeMs() { return totalTimeMs; }
-        public Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> getUsearchResults() { return usearchResults; }
-        public LuceneHNSWBenchmark.BenchmarkResult getLuceneResult() { return luceneResult; }
-        public long getTimestamp() { return timestamp; }
+        public String getDatasetName() {
+            return datasetName;
+        }
+
+        public BenchmarkConfig.BenchmarkMode getMode() {
+            return mode;
+        }
+
+        public long getTotalTimeMs() {
+            return totalTimeMs;
+        }
+
+        public Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> getUsearchResults() {
+            return usearchResults;
+        }
+
+        public LuceneBenchmark.BenchmarkResult getLuceneResult() {
+            return luceneResult;
+        }
+
+        public long getTimestamp() {
+            return timestamp;
+        }
     }
 
     private final SparkSession spark;
@@ -70,16 +93,14 @@ public class SparkBenchmarkCoordinator {
             // Load dataset
             DatasetRegistry.Dataset dataset = loadDataset(config);
 
-            // Run benchmarks based on mode
-            BenchmarkResults results;
-            if (config.getMode() == BenchmarkConfig.BenchmarkMode.LOCAL) {
-                results = runLocalBenchmark(config, dataset);
-            } else {
-                results = runDistributedBenchmark(config, dataset);
-            }
+            // Run local multithreaded benchmark
+            BenchmarkResults results = runLocalBenchmark(config, dataset);
 
             // Save results
             saveResults(config, results);
+
+            // Display comparison table
+            printBenchmarkComparison(results.usearchResults, results.luceneResult);
 
             long totalTime = System.currentTimeMillis() - startTime;
             logger.info("Benchmark completed in {} ms", totalTime);
@@ -93,7 +114,7 @@ public class SparkBenchmarkCoordinator {
 
     private DatasetRegistry.Dataset loadDataset(BenchmarkConfig config) throws IOException {
         logger.info("Loading dataset: {}", config.getDatasetName());
-        
+
         if (!DatasetRegistry.isValidDataset(config.getDatasetName())) {
             logger.error("Unknown dataset: {}", config.getDatasetName());
             DatasetRegistry.printDatasetInfo();
@@ -104,11 +125,13 @@ public class SparkBenchmarkCoordinator {
         return DatasetRegistry.loadDataset(config.getDatasetName());
     }
 
-    private BenchmarkResults runLocalBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset) 
+    private BenchmarkResults runLocalBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset)
             throws Exception {
         logger.info("Running local benchmark");
 
-        // Run USearch benchmarks
+        // Simple progress tracking without complex Spark operations
+
+        // Run USearch benchmarks (multithreaded)
         progressAccumulator.add(20);
         USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
         Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = 
@@ -116,112 +139,57 @@ public class SparkBenchmarkCoordinator {
 
         progressAccumulator.add(40);
 
-        // Run Lucene benchmark
-        LuceneHNSWBenchmark luceneBenchmark = new LuceneHNSWBenchmark(config, dataset);
-        LuceneHNSWBenchmark.BenchmarkResult luceneResult = luceneBenchmark.runBenchmark();
+        // Run Lucene benchmark (multithreaded)
+        LuceneBenchmark luceneBenchmark = new LuceneBenchmark(config, dataset);
+        LuceneBenchmark.BenchmarkResult luceneResult = luceneBenchmark.runBenchmark();
 
         progressAccumulator.add(30);
 
+        // Log results with clean output
+        USearchBenchmark.logBenchmarkResults(usearchResults);
+        LuceneBenchmark.logBenchmarkResults(luceneResult);
+
         long totalTime = System.currentTimeMillis();
 
-        // Log results
-        USearchBenchmark.logBenchmarkResults(usearchResults);
-        LuceneHNSWBenchmark.logBenchmarkResults(luceneResult);
+        // Results already logged above with clean output
 
         return new BenchmarkResults(
-            config.getDatasetName(),
-            config.getMode(),
-            totalTime,
-            usearchResults,
-            luceneResult
-        );
+                config.getDatasetName(),
+                config.getMode(),
+                totalTime,
+                usearchResults,
+                luceneResult);
     }
 
-    private BenchmarkResults runDistributedBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset) 
-            throws Exception {
-        logger.info("Running distributed benchmark across Spark cluster");
 
-        // For distributed execution, we would partition the work across Spark nodes
-        // This is a simplified implementation that demonstrates the structure
-        
-        // Broadcast configuration and dataset info to all nodes
-        Broadcast<BenchmarkConfig> configBroadcast = spark.sparkContext().broadcast(config, 
-            scala.reflect.ClassTag$.MODULE$.apply(BenchmarkConfig.class));
-        Broadcast<DatasetRegistry.Dataset> datasetBroadcast = spark.sparkContext().broadcast(dataset,
-            scala.reflect.ClassTag$.MODULE$.apply(DatasetRegistry.Dataset.class));
+    private void printBenchmarkComparison(
+            Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
+            LuceneBenchmark.BenchmarkResult luceneResult) {
+        System.out.println("\n=== Vector Search Benchmark Comparison ===");
+        System.out.printf("%-12s %-15s %-15s %-15s %-15s%n", "Implementation", "Indexing (ms)", "Search (ms)",
+                "Throughput (QPS)", "Memory (MB)");
+        System.out.println("=".repeat(80));
 
-        progressAccumulator.add(20);
-
-        // Create Spark RDD for parallel execution
-        // In a full implementation, this would partition the benchmark workload
-        List<Integer> partitions = new ArrayList<>();
-        int numPartitions = spark.sparkContext().defaultParallelism();
-        for (int i = 0; i < numPartitions; i++) {
-            partitions.add(i);
+        // Print USearch results
+        for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry : usearchResults.entrySet()) {
+            USearchBenchmark.BenchmarkResult result = entry.getValue();
+            System.out.printf("%-12s %-15s %-15s %-15s %-15s%n",
+                    "USearch " + entry.getKey().getName(),
+                    String.format("%,d", result.getIndexingTimeMs()),
+                    String.format("%,d", result.getSearchTimeMs()),
+                    String.format("%,.0f", result.getThroughputQPS()),
+                    String.format("%,d", Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
         }
 
-        // Distribute benchmark execution
-        // This is a simplified version - in practice, you'd partition vectors across nodes
-        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = 
-            runDistributedUSearchBenchmark(configBroadcast, datasetBroadcast, partitions);
+        // Print Lucene result
+        System.out.printf("%-12s %-15s %-15s %-15s %-15s%n",
+                "Lucene F32",
+                String.format("%,d", luceneResult.getIndexingTimeMs()),
+                String.format("%,d", luceneResult.getSearchTimeMs()),
+                String.format("%,.0f", luceneResult.getThroughputQPS()),
+                String.format("%,d", Math.round(luceneResult.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 
-        progressAccumulator.add(50);
-
-        LuceneHNSWBenchmark.BenchmarkResult luceneResult = 
-            runDistributedLuceneBenchmark(configBroadcast, datasetBroadcast);
-
-        progressAccumulator.add(30);
-
-        // Clean up broadcasts
-        configBroadcast.destroy();
-        datasetBroadcast.destroy();
-
-        long totalTime = System.currentTimeMillis();
-
-        // Log results
-        USearchBenchmark.logBenchmarkResults(usearchResults);
-        LuceneHNSWBenchmark.logBenchmarkResults(luceneResult);
-
-        return new BenchmarkResults(
-            config.getDatasetName(),
-            config.getMode(),
-            totalTime,
-            usearchResults,
-            luceneResult
-        );
-    }
-
-    private Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> runDistributedUSearchBenchmark(
-            Broadcast<BenchmarkConfig> configBroadcast,
-            Broadcast<DatasetRegistry.Dataset> datasetBroadcast,
-            List<Integer> partitions) throws Exception {
-        
-        // In a full distributed implementation, this would:
-        // 1. Partition the dataset across nodes
-        // 2. Run benchmarks on each partition
-        // 3. Aggregate results
-        
-        // For now, we'll run the benchmark locally but demonstrate the distributed structure
-        logger.info("Running distributed USearch benchmarks (simplified implementation)");
-        
-        BenchmarkConfig config = configBroadcast.value();
-        DatasetRegistry.Dataset dataset = datasetBroadcast.value();
-        
-        USearchBenchmark benchmark = new USearchBenchmark(config, dataset);
-        return benchmark.runBenchmarks();
-    }
-
-    private LuceneHNSWBenchmark.BenchmarkResult runDistributedLuceneBenchmark(
-            Broadcast<BenchmarkConfig> configBroadcast,
-            Broadcast<DatasetRegistry.Dataset> datasetBroadcast) throws Exception {
-        
-        logger.info("Running distributed Lucene HNSW benchmark (simplified implementation)");
-        
-        BenchmarkConfig config = configBroadcast.value();
-        DatasetRegistry.Dataset dataset = datasetBroadcast.value();
-        
-        LuceneHNSWBenchmark benchmark = new LuceneHNSWBenchmark(config, dataset);
-        return benchmark.runBenchmark();
+        System.out.println();
     }
 
     private void saveResults(BenchmarkConfig config, BenchmarkResults results) throws IOException {
@@ -232,15 +200,15 @@ public class SparkBenchmarkCoordinator {
         // Save as JSON
         ObjectMapper objectMapper = new ObjectMapper();
         ObjectWriter writer = objectMapper.writerWithDefaultPrettyPrinter();
-        
-        String filename = String.format("benchmark_results_%s_%s_%d.json", 
-                                       results.getDatasetName(), 
-                                       results.getMode().getName(),
-                                       results.getTimestamp());
-        
+
+        String filename = String.format("benchmark_results_%s_%s_%d.json",
+                results.getDatasetName(),
+                results.getMode().getName(),
+                results.getTimestamp());
+
         Path resultsFile = outputPath.resolve(filename);
         writer.writeValue(resultsFile.toFile(), results);
-        
+
         logger.info("Results saved to: {}", resultsFile.toAbsolutePath());
 
         // Also save a summary CSV for easy analysis
@@ -250,62 +218,62 @@ public class SparkBenchmarkCoordinator {
     private void saveSummaryCSV(Path outputPath, BenchmarkResults results) throws IOException {
         Path csvFile = outputPath.resolve("benchmark_summary.csv");
         boolean fileExists = Files.exists(csvFile);
-        
+
         try (FileWriter fw = new FileWriter(csvFile.toFile(), true);
-             PrintWriter pw = new PrintWriter(fw)) {
-            
+                PrintWriter pw = new PrintWriter(fw)) {
+
             // Write header if file doesn't exist
             if (!fileExists) {
-                pw.println("timestamp,dataset,mode,implementation,precision,indexing_time_ms,search_time_ms,throughput_qps,memory_usage_mb,recall_at_1,recall_at_10,recall_at_100");
+                pw.println(
+                        "timestamp,dataset,mode,implementation,precision,indexing_time_ms,search_time_ms,throughput_qps,memory_usage_mb,recall_at_1,recall_at_10,recall_at_100");
             }
-            
+
             // Write USearch results
-            for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry : 
-                 results.getUsearchResults().entrySet()) {
-                
+            for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry : results
+                    .getUsearchResults().entrySet()) {
+
                 USearchBenchmark.BenchmarkResult result = entry.getValue();
                 pw.printf("%d,%s,%s,USearch,%s,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
+                        results.getTimestamp(),
+                        results.getDatasetName(),
+                        results.getMode().getName(),
+                        entry.getKey().getName(),
+                        result.getIndexingTimeMs(),
+                        result.getSearchTimeMs(),
+                        result.getThroughputQPS(),
+                        result.getMemoryUsageBytes() / (1024.0 * 1024.0),
+                        result.getRecallAtK().getOrDefault(1, 0.0),
+                        result.getRecallAtK().getOrDefault(10, 0.0),
+                        result.getRecallAtK().getOrDefault(100, 0.0));
+            }
+
+            // Write Lucene result
+            LuceneBenchmark.BenchmarkResult luceneResult = results.getLuceneResult();
+            pw.printf("%d,%s,%s,Lucene,F32,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
                     results.getTimestamp(),
                     results.getDatasetName(),
                     results.getMode().getName(),
-                    entry.getKey().getName(),
-                    result.getIndexingTimeMs(),
-                    result.getSearchTimeMs(),
-                    result.getThroughputQPS(),
-                    result.getMemoryUsageBytes() / (1024.0 * 1024.0),
-                    result.getRecallAtK().getOrDefault(1, 0.0),
-                    result.getRecallAtK().getOrDefault(10, 0.0),
-                    result.getRecallAtK().getOrDefault(100, 0.0)
-                );
-            }
-            
-            // Write Lucene result
-            LuceneHNSWBenchmark.BenchmarkResult luceneResult = results.getLuceneResult();
-            pw.printf("%d,%s,%s,Lucene,F32,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
-                results.getTimestamp(),
-                results.getDatasetName(),
-                results.getMode().getName(),
-                luceneResult.getIndexingTimeMs(),
-                luceneResult.getSearchTimeMs(),
-                luceneResult.getThroughputQPS(),
-                luceneResult.getMemoryUsageBytes() / (1024.0 * 1024.0),
-                luceneResult.getRecallAtK().getOrDefault(1, 0.0),
-                luceneResult.getRecallAtK().getOrDefault(10, 0.0),
-                luceneResult.getRecallAtK().getOrDefault(100, 0.0)
-            );
+                    luceneResult.getIndexingTimeMs(),
+                    luceneResult.getSearchTimeMs(),
+                    luceneResult.getThroughputQPS(),
+                    luceneResult.getMemoryUsageBytes() / (1024.0 * 1024.0),
+                    luceneResult.getRecallAtK().getOrDefault(1, 0.0),
+                    luceneResult.getRecallAtK().getOrDefault(10, 0.0),
+                    luceneResult.getRecallAtK().getOrDefault(100, 0.0));
         }
-        
+
         logger.info("Summary CSV updated: {}", csvFile.toAbsolutePath());
     }
 
     private void startProgressTracking() {
         logger.info("Starting progress tracking");
         progressScheduler = Executors.newSingleThreadScheduledExecutor();
-        
-        progressScheduler.scheduleAtFixedRate(() -> {
-            long progress = progressAccumulator.value();
-            logger.info("Benchmark progress: {}%", Math.min(progress, 100));
-        }, 10, 10, TimeUnit.SECONDS);
+
+        // Disabled verbose progress logging - now using Spark's native progress bars
+        // progressScheduler.scheduleAtFixedRate(() -> {
+        // long progress = progressAccumulator.value();
+        // logger.info("Benchmark progress: {}%", Math.min(progress, 100));
+        // }, 10, 10, TimeUnit.SECONDS);
     }
 
     private void stopProgressTracking() {
@@ -322,4 +290,5 @@ public class SparkBenchmarkCoordinator {
         }
         logger.info("Progress tracking stopped");
     }
+
 }

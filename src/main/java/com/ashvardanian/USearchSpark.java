@@ -18,16 +18,17 @@ public class USearchSpark {
             System.exit(1);
         }
 
-        SparkSession spark = SparkSession.builder()
-                .appName("USearchSpark - Vector Search Benchmark")
-                .master("local[*]") // Default to local mode with all available cores
-                .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-                .config("spark.sql.adaptive.enabled", "true")
-                .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-                .getOrCreate();
-
+        SparkSession spark = null;
         try {
             BenchmarkConfig config = BenchmarkConfig.parseArgs(args);
+
+            spark = SparkSession.builder()
+                    .appName("USearchSpark - Vector Search Benchmark")
+                    .master("local[*]") // Use all available cores
+                    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                    .config("spark.sql.adaptive.enabled", "true")
+                    .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+                    .getOrCreate();
             
             logger.info("Starting USearchSpark Vector Search Benchmark:");
             logger.info("  Dataset: {}", config.getDatasetName());
@@ -44,7 +45,9 @@ public class USearchSpark {
             logger.error("Benchmark failed", e);
             throw new RuntimeException(e);
         } finally {
-            spark.stop();
+            if (spark != null) {
+                spark.stop();
+            }
         }
     }
 }

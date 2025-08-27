@@ -42,7 +42,7 @@ repositories {
 // Task to download USearch JAR from GitHub releases
 task downloadUSearchJar {
     doLast {
-        def usearchVersion = '2.19.23'
+        def usearchVersion = '2.20.0'
         def usearchUrl = "https://github.com/unum-cloud/usearch/releases/download/v${usearchVersion}/usearch-${usearchVersion}.jar"
         def usearchFile = file("lib/usearch-${usearchVersion}.jar")
         
@@ -66,7 +66,7 @@ dependencies {
     implementation 'org.apache.spark:spark-mllib_2.13:4.0.0'
     
     // USearch JAR from local lib directory (downloaded automatically)
-    implementation name: 'usearch', version: '2.19.23', ext: 'jar'
+    implementation name: 'usearch', version: '2.20.0', ext: 'jar'
     
     // Apache Lucene for HNSW baseline
     implementation 'org.apache.lucene:lucene-core:9.12.0'
@@ -91,6 +91,10 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+tasks.withType(JavaCompile) {
+    options.compilerArgs << "-Xlint:deprecation"
+}
+
 jar {
     manifest {
         attributes(
@@ -111,7 +115,7 @@ task fatJar(type: Jar) {
     }
     
     archiveClassifier = 'all'
-    zip64 true
+    zip64 = true
     
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
