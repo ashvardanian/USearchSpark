@@ -76,6 +76,7 @@ public class BenchmarkConfig {
     private boolean includeMemoryUsage = true;
     private long maxVectors = -1L; // -1 means use all vectors
     private int batchSize = 1024; // Default batch size for parallel processing
+    private int numThreads = -1; // -1 means use hardware thread count
 
     public BenchmarkConfig(String datasetName, String outputPath, BenchmarkMode mode,
             List<Precision> precisions, Map<String, String> additionalConfig) {
@@ -111,6 +112,9 @@ public class BenchmarkConfig {
         }
         if (additionalConfig.containsKey("batchSize")) {
             this.batchSize = Integer.parseInt(additionalConfig.get("batchSize"));
+        }
+        if (additionalConfig.containsKey("numThreads")) {
+            this.numThreads = Integer.parseInt(additionalConfig.get("numThreads"));
         }
     }
 
@@ -151,6 +155,8 @@ public class BenchmarkConfig {
                 additionalConfig.put("maxVectors", args[++i]);
             } else if ("--batch-size".equals(arg) && i + 1 < args.length) {
                 additionalConfig.put("batchSize", args[++i]);
+            } else if ("--threads".equals(arg) && i + 1 < args.length) {
+                additionalConfig.put("numThreads", args[++i]);
             } else if (arg.startsWith("--")) {
                 throw new IllegalArgumentException("Unknown option: " + arg);
             }
@@ -216,5 +222,9 @@ public class BenchmarkConfig {
 
     public Map<String, String> getAllAdditionalConfig() {
         return additionalConfig;
+    }
+
+    public int getNumThreads() {
+        return numThreads;
     }
 }

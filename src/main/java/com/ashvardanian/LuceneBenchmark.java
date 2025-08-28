@@ -12,12 +12,10 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StoredField;
-import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
@@ -182,7 +180,9 @@ public class LuceneBenchmark {
         long memoryBefore = getMemoryUsage();
 
         // Parallel indexing with thread-safe IndexWriter
-        int numThreads = java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        int numThreads = config.getNumThreads() != -1
+                ? config.getNumThreads()
+                : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
         System.out.println("🧵 Using " + numThreads + " threads for Lucene indexing (" +
                 java.util.concurrent.ForkJoinPool.commonPool().getParallelism() + " available)");
 
@@ -295,7 +295,9 @@ public class LuceneBenchmark {
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
         // Use all available threads for search
-        int numThreads = java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        int numThreads = config.getNumThreads() != -1
+                ? config.getNumThreads()
+                : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
         System.out.println("🔍 Using " + numThreads + " threads for search");
 
         // Phase 1: Pure HNSW search (no ID retrieval)

@@ -66,6 +66,7 @@ public class USearchSpark {
                   --queries N            Number of queries (default: 10000)
                   --k-values LIST        Comma-separated k values (default: 1,10,100)
                   --batch-size N         Parallel processing batch size (default: 1024)
+                  --threads N            Number of threads (default: hardware threads)
                   --help, -h             Show this help
 
                 EXAMPLES

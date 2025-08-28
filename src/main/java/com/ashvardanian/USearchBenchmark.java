@@ -227,7 +227,9 @@ public class USearchBenchmark {
             long memoryBefore = getMemoryUsage(index);
 
             // Determine optimal thread count (cap at reasonable number for JNI overhead)
-            int numThreads = ForkJoinPool.commonPool().getParallelism();
+            int numThreads = config.getNumThreads() != -1
+                    ? config.getNumThreads()
+                    : ForkJoinPool.commonPool().getParallelism();
             System.out.println("🧵 Using " + numThreads + " threads for indexing (" +
                     ForkJoinPool.commonPool().getParallelism() + " available)");
 
@@ -335,7 +337,9 @@ public class USearchBenchmark {
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
         // Use all available threads for search
-        int numThreads = java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        int numThreads = config.getNumThreads() != -1
+                ? config.getNumThreads()
+                : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
         System.out.println("🔍 Using " + numThreads + " threads for search");
 
         // SINGLE SEARCH with maximum K - no accuracy calculations during timing

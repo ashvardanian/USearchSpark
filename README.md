@@ -16,8 +16,14 @@ When running on larger machines, consider overriding the following JVM settings.
 For 750+ GB machines - consider a massive 512 GB heap:
 
 ```bash
-export JAVA_OPTS="-Xmx512g -Xms64g -XX:G1HeapRegionSize=64m"
-gradle run --args="msft-spacev-1b"
+JAVA_OPTS="-Xmx512g -Xms64g -XX:G1HeapRegionSize=64m" gradle run --args="msft-spacev-1b"
+```
+
+For small test runs comparing the impact of multi-threading you may run:
+
+```bash
+JAVA_OPTS="-Xms2g -Xmx8g" gradle run --args="unum-wiki-1m --max-vectors 10000 --queries 10000 --batch-size 100 --threads 1"
+JAVA_OPTS="-Xms2g -Xmx8g" gradle run --args="unum-wiki-1m --max-vectors 10000 --queries 10000 --batch-size 100 --threads 8"
 ```
 
 Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing clean output like, the following results obtained for the 100M `msft-spacev-100m` subset of Microsoft SpaceV on AWS `m7i.metal-48xl` instances with 92 cores and 192 threads across 2 sockets.
