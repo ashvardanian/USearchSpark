@@ -224,7 +224,7 @@ public class USearchBenchmark {
 
             // Measure indexing time
             long startIndexing = System.currentTimeMillis();
-            long memoryBefore = getMemoryUsage();
+            long memoryBefore = getMemoryUsage(index);
 
             // Determine optimal thread count (cap at reasonable number for JNI overhead)
             int numThreads = Math.min(ForkJoinPool.commonPool().getParallelism(), Math.max(1, numBaseVectors / 1000));
@@ -272,7 +272,7 @@ public class USearchBenchmark {
             indexProgress.complete(numBaseVectors);
 
             long indexingTime = System.currentTimeMillis() - startIndexing;
-            long memoryAfter = getMemoryUsage();
+            long memoryAfter = getMemoryUsage(index);
             // Use Math.max to prevent negative memory usage due to GC
             long memoryUsage = Math.max(0, memoryAfter - memoryBefore);
 
@@ -359,23 +359,45 @@ public class USearchBenchmark {
                 searchProgress.increment();
             }
         } else {
-            // Multi-threaded search - each thread allocates its own buffer
-            IntStream.range(0, numQueries).parallel().forEach(i -> {
-                try {
-                    if (useByteData) {
-                        byte[] queryByteBuffer = new byte[queryVectors.getCols()];
-                        queryVectors.getVectorAsByte(i, queryByteBuffer);
-                        allSearchResults[i] = index.search(queryByteBuffer, maxK);
-                    } else {
-                        float[] queryFloatBuffer = new float[queryVectors.getCols()];
-                        queryVectors.getVectorAsFloat(i, queryFloatBuffer);
-                        allSearchResults[i] = index.search(queryFloatBuffer, maxK);
+            // Multi-threaded search with pre-allocated thread-local buffers
+            final int bufferSize = queryVectors.getCols();
+            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(0);
+            
+            if (useByteData) {
+                // Pre-allocate byte buffers for each thread
+                final byte[][] threadBuffers = new byte[searchThreads][bufferSize];
+                
+                IntStream.range(0, numQueries).parallel().forEach(i -> {
+                    try {
+                        // Each thread gets its own buffer slice
+                        int threadId = threadCounter.getAndIncrement() % searchThreads;
+                        byte[] queryBuffer = threadBuffers[threadId];
+                        
+                        queryVectors.getVectorAsByte(i, queryBuffer);
+                        allSearchResults[i] = index.search(queryBuffer, maxK);
+                        searchProgress.increment();
+                    } catch (Exception e) {
+                        throw new RuntimeException("Parallel search failed at query " + i, e);
                     }
-                    searchProgress.increment();
-                } catch (Exception e) {
-                    throw new RuntimeException("Parallel search failed at query " + i, e);
-                }
-            });
+                });
+            } else {
+                // Pre-allocate float buffers for each thread
+                final float[][] threadBuffers = new float[searchThreads][bufferSize];
+                
+                IntStream.range(0, numQueries).parallel().forEach(i -> {
+                    try {
+                        // Each thread gets its own buffer slice (thread-safe via modulo)
+                        int threadId = threadCounter.getAndIncrement() % searchThreads;
+                        float[] queryBuffer = threadBuffers[threadId];
+                        
+                        queryVectors.getVectorAsFloat(i, queryBuffer);
+                        allSearchResults[i] = index.search(queryBuffer, maxK);
+                        searchProgress.increment();
+                    } catch (Exception e) {
+                        throw new RuntimeException("Parallel search failed at query " + i, e);
+                    }
+                });
+            }
         }
 
         long searchTime = System.currentTimeMillis() - startSearch;
@@ -454,7 +476,7 @@ public class USearchBenchmark {
         }
     }
 
-    private long getMemoryUsage() {
+    private long getMemoryUsage(Index index) {
         if (!config.isIncludeMemoryUsage()) {
             return 0;
         }
@@ -468,7 +490,10 @@ public class USearchBenchmark {
             Thread.currentThread().interrupt();
         }
 
-        return runtime.totalMemory() - runtime.freeMemory();
+        long jvmMemory = runtime.totalMemory() - runtime.freeMemory();
+        long nativeMemory = index.memoryUsage();
+        
+        return jvmMemory + nativeMemory;
     }
 
     public static void logBenchmarkResults(Map<BenchmarkConfig.Precision, BenchmarkResult> results) {

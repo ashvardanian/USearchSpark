@@ -289,24 +289,46 @@ public class LuceneBenchmark {
         // Find maximum K value for single search optimization
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // Parallel search with IndexSearcher - thread-safe for concurrent reads
+        // Determine optimal thread count for search (same logic as USearch)
+        int searchThreads = Math.min(java.util.concurrent.ForkJoinPool.commonPool().getParallelism() / 2,
+                Math.max(1, numQueries / 500));
+        System.out.println("🔍 Using " + searchThreads + " threads for search");
+
         ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
         long startSearch = System.currentTimeMillis();
-        java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
-            try {
-                // Each thread needs its own buffer to avoid race conditions
-                float[] queryBuffer = new float[queryVectors.getCols()];
-                queryVectors.getVectorAsFloat(i, queryBuffer);
 
-                // Perform HNSW search with maximum K - IndexSearcher is thread-safe
+        if (searchThreads == 1) {
+            // Single-threaded fallback - reuse buffer
+            float[] queryBuffer = new float[queryVectors.getCols()];
+            for (int i = 0; i < numQueries; i++) {
+                queryVectors.getVectorAsFloat(i, queryBuffer);
                 KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
                 allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
-
                 searchProgress.increment();
-            } catch (Exception e) {
-                throw new RuntimeException("Search failed for query " + i, e);
             }
-        });
+        } else {
+            // Multi-threaded search with pre-allocated thread-local buffers
+            final int bufferSize = queryVectors.getCols();
+            final float[][] threadBuffers = new float[searchThreads][bufferSize];
+            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(0);
+            
+            java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
+                try {
+                    // Each thread gets its own buffer slice
+                    int threadId = threadCounter.getAndIncrement() % searchThreads;
+                    float[] queryBuffer = threadBuffers[threadId];
+                    queryVectors.getVectorAsFloat(i, queryBuffer);
+
+                    // Perform HNSW search with maximum K
+                    KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
+                    allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
+
+                    searchProgress.increment();
+                } catch (Exception e) {
+                    throw new RuntimeException("Search failed for query " + i, e);
+                }
+            });
+        }
         long searchTime = System.currentTimeMillis() - startSearch;
         searchProgress.complete(numQueries);
 
