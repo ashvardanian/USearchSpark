@@ -176,10 +176,8 @@ public class LuceneBenchmark {
             documents.add(document);
         }
 
-        // Batch add documents for better performance
-        synchronized (indexWriter) {
-            indexWriter.addDocuments(documents);
-        }
+        // Lucene IndexWriter is thread-safe for addDocuments() - no sync needed!
+        indexWriter.addDocuments(documents);
     }
 
     private Map<Integer, Double> calculateRecall(IndexSearcher indexSearcher,
