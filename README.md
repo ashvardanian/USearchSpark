@@ -52,9 +52,9 @@ NDCG@K stands for Normalized [Discounted Cumulative Gain](https://en.wikipedia.o
 
 ## Datasets
 
-BigANN benchmark is a good starting point, if you are searching for large collections of high-dimensional vectors.
+The [BigANN benchmark](https://big-ann-benchmarks.com) is a good starting point if you are searching for extensive collections of high-dimensional vectors.
 Still, it rarely considers datasets with more than tens of millions of entries.
-In the age of 100+ core CPUs and Petabyte-scale storage in 2U servers, bigger datasets are needed.
+In the era of 100+ core CPUs and Petabyte-scale storage in 2U servers, larger datasets are required.
 
 | Dataset                                     | Codename           | DType | NDim | Metric |   Size |  $N$ |
 | :------------------------------------------ | :----------------- | ----: | ---: | -----: | -----: | ---: |
@@ -72,7 +72,7 @@ In the age of 100+ core CPUs and Petabyte-scale storage in 2U servers, bigger da
 | [ViT-L/12 LAION][laion]                     | `laion-5b`         | `f32` | 2048 |    Cos |  10 TB |    - |
 
 Those often come with $N$ precomputed ground-truth neighbors, which is handy for recall evaluation.
-The ground-truth neighbors are computed with respect to some "metric", such as Inner Product (IP), Cosine similarity (Cos) or Euclidean distance (L2).
+The ground-truth neighbors are computed with respect to some "metric", such as Inner Product (IP), Cosine similarity (Cos), or Euclidean distance (L2).
 They are generally distributed in a form of binary matrix files, packing either `f32` or `i8` scalars, for high compatibility, as opposed to less common `f16` and `bf16`.
 
 [unum-cc-3m]: https://huggingface.co/datasets/unum-cloud/ann-cc-3m

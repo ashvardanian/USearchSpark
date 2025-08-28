@@ -16,6 +16,7 @@
         "ashvardanian",
         "HNSW",
         "Lucene",
+        "NDCG",
         "usearch"
     ]
 }

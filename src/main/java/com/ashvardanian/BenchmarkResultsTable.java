@@ -32,7 +32,7 @@ public class BenchmarkResultsTable {
 
         // Lucene first as requested
         double luceneIps = luceneResult.getIndexingTimeMs() > 0
-                ? (1000000.0 * 1000.0) / luceneResult.getIndexingTimeMs()
+                ? (luceneResult.getNumVectors() * 1000.0) / luceneResult.getIndexingTimeMs()
                 : 0;
         perfTable.addRow("Apache", "F32",
                 String.format("%,.0f", luceneIps),
@@ -49,7 +49,9 @@ public class BenchmarkResultsTable {
         for (BenchmarkConfig.Precision precision : precisions) {
             USearchBenchmark.BenchmarkResult result = usearchResults.get(precision);
             if (result != null) {
-                double ips = result.getIndexingTimeMs() > 0 ? (1000000.0 * 1000.0) / result.getIndexingTimeMs() : 0;
+                double ips = result.getIndexingTimeMs() > 0
+                        ? (result.getNumVectors() * 1000.0) / result.getIndexingTimeMs()
+                        : 0;
                 perfTable.addRow("USearch", precision.getName().toUpperCase(),
                         String.format("%,.0f", ips),
                         String.format("%,.0f", result.getThroughputQPS()),

@@ -162,23 +162,32 @@ public class LuceneBenchmark {
         long startIndexing = System.currentTimeMillis();
         long memoryBefore = getMemoryUsage();
 
-        // Direct indexing without artificial batching - using reusable buffer
+        // Parallel indexing with thread-safe IndexWriter
+        int numThreads = Math.min(java.util.concurrent.ForkJoinPool.commonPool().getParallelism(),
+                Math.max(1, numBaseVectors / 1000));
+        System.out.println("🧵 Using " + numThreads + " threads for Lucene indexing (" +
+                java.util.concurrent.ForkJoinPool.commonPool().getParallelism() + " available)");
+
         ProgressLogger indexProgress = new ProgressLogger("Indexing F32", numBaseVectors);
 
-        // Pre-allocate reusable buffer to avoid repeated allocations
-        float[] vectorBuffer = new float[baseVectors.getCols()];
+        // Parallel indexing - IndexWriter.addDocument() is thread-safe
+        java.util.stream.IntStream.range(0, numBaseVectors).parallel().forEach(i -> {
+            try {
+                // Each thread needs its own buffer to avoid race conditions
+                float[] vectorBuffer = new float[baseVectors.getCols()];
+                long key = i; // Use index as document ID
+                baseVectors.getVectorAsFloat(i, vectorBuffer);
 
-        for (int i = 0; i < numBaseVectors; i++) {
-            long key = i; // Use index as document ID
-            baseVectors.getVectorAsFloat(i, vectorBuffer);
+                Document document = new Document();
+                document.add(new StoredField("id", key));
+                document.add(new KnnFloatVectorField("vector", vectorBuffer)); // No clone needed - buffer is per-thread
+                indexWriter.addDocument(document); // Thread-safe operation
 
-            Document document = new Document();
-            document.add(new StoredField("id", key));
-            document.add(new KnnFloatVectorField("vector", vectorBuffer.clone())); // Clone needed for Lucene
-            indexWriter.addDocument(document);
-
-            indexProgress.update(i + 1);
-        }
+                indexProgress.increment();
+            } catch (Exception e) {
+                throw new RuntimeException("Indexing failed for vector " + i, e);
+            }
+        });
         indexProgress.complete(numBaseVectors);
 
         indexWriter.close();
@@ -276,21 +285,24 @@ public class LuceneBenchmark {
         // Find maximum K value for single search optimization
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // Pre-allocate reusable query buffer to avoid repeated allocations
-        float[] queryBuffer = new float[queryVectors.getCols()];
-
-        // SINGLE SEARCH with maximum K - no accuracy calculations during timing
+        // Parallel search with IndexSearcher - thread-safe for concurrent reads
         ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
         long startSearch = System.currentTimeMillis();
-        for (int i = 0; i < numQueries; i++) {
-            queryVectors.getVectorAsFloat(i, queryBuffer);
+        java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
+            try {
+                // Each thread needs its own buffer to avoid race conditions
+                float[] queryBuffer = new float[queryVectors.getCols()];
+                queryVectors.getVectorAsFloat(i, queryBuffer);
 
-            // Perform HNSW search with maximum K
-            KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
-            allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
+                // Perform HNSW search with maximum K - IndexSearcher is thread-safe
+                KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
+                allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
 
-            searchProgress.update(i + 1);
-        }
+                searchProgress.increment();
+            } catch (Exception e) {
+                throw new RuntimeException("Search failed for query " + i, e);
+            }
+        });
         long searchTime = System.currentTimeMillis() - startSearch;
         searchProgress.complete(numQueries);
 

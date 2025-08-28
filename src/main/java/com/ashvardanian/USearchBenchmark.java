@@ -245,13 +245,10 @@ public class USearchBenchmark {
                         baseVectors.getVectorAsFloat(i, floatBuffer);
                         index.add(i, floatBuffer);
                     }
-                    indexProgress.update(i + 1);
+                    indexProgress.increment();
                 }
             } else {
                 // Multi-threaded indexing - each thread allocates its own buffer
-                // JNI Performance Note: Each index.add() triggers JNI call with array copying
-                // Parallel processing distributes ~25% array copy overhead across threads
-                // See JNI_PERFORMANCE_ANALYSIS.md for detailed bottleneck analysis
                 IntStream.range(0, numBaseVectors).parallel().forEach(i -> {
                     try {
                         if (useByteData) {
@@ -263,7 +260,7 @@ public class USearchBenchmark {
                             baseVectors.getVectorAsFloat(i, floatBuffer);
                             index.add(i, floatBuffer); // JNI: GetFloatArrayElements + ReleaseFloatArrayElements
                         }
-                        indexProgress.update(i + 1);
+                        indexProgress.increment();
                     } catch (Exception e) {
                         throw new RuntimeException("Parallel indexing failed at vector " + i, e);
                     }
@@ -355,7 +352,7 @@ public class USearchBenchmark {
                     queryVectors.getVectorAsFloat(i, queryFloatBuffer);
                     allSearchResults[i] = index.search(queryFloatBuffer, maxK);
                 }
-                searchProgress.update(i + 1);
+                searchProgress.increment();
             }
         } else {
             // Multi-threaded search - each thread allocates its own buffer
@@ -370,7 +367,7 @@ public class USearchBenchmark {
                         queryVectors.getVectorAsFloat(i, queryFloatBuffer);
                         allSearchResults[i] = index.search(queryFloatBuffer, maxK);
                     }
-                    searchProgress.update(i + 1);
+                    searchProgress.increment();
                 } catch (Exception e) {
                     throw new RuntimeException("Parallel search failed at query " + i, e);
                 }
