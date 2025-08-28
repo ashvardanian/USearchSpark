@@ -19,8 +19,10 @@ public class BinaryVectorLoader {
         FLOAT64(".dbin", 8, Double.BYTES),
         FLOAT16(".hbin", 2, 2), // Half precision
         INT32(".ibin", 4, Integer.BYTES),
-        INT8(".i8bin", 1, Byte.BYTES), // Signed 8-bit integers (SPACEV format)
         UINT8(".bbin", 1, Byte.BYTES),
+        INT8(".i8bin", 1, Byte.BYTES), // Signed 8-bit integers (SPACEV format)
+        FLOAT32_BIN(".f32bin", 4, Float.BYTES), // Alternative F32 format (SpaceV distances)
+        INT32_BIN(".i32bin", 4, Integer.BYTES), // Alternative I32 format (SpaceV ground truth)
         UINT8_BIN(".u8bin", 1, Byte.BYTES); // Alternative uint8 format
 
         private final String extension;
@@ -262,5 +264,165 @@ public class BinaryVectorLoader {
             
             return new DatasetInfo(filePath, rows, cols, type);
         }
+    }
+
+    public static class GroundTruth {
+        private final int numQueries;
+        private final int k;
+        private final VectorType type;
+        private final ByteBuffer data;
+
+        public GroundTruth(int numQueries, int k, VectorType type, ByteBuffer data) {
+            this.numQueries = numQueries;
+            this.k = k;
+            this.type = type;
+            this.data = data;
+        }
+
+        public int getNumQueries() { return numQueries; }
+        public int getK() { return k; }
+        public VectorType getType() { return type; }
+
+        public int[] getNeighbors(int queryIndex) {
+            if (queryIndex >= numQueries) {
+                throw new IndexOutOfBoundsException("Query index " + queryIndex + " >= " + numQueries);
+            }
+
+            int[] neighbors = new int[k];
+            int offset = queryIndex * k * type.getByteSize();
+
+            if (type == VectorType.INT32 || type == VectorType.INT32_BIN) {
+                for (int i = 0; i < k; i++) {
+                    neighbors[i] = data.getInt(offset + i * Integer.BYTES);
+                }
+            } else {
+                throw new UnsupportedOperationException("Ground truth type " + type + " not supported");
+            }
+
+            return neighbors;
+        }
+
+        public float[] getDistances(int queryIndex) {
+            if (type != VectorType.FLOAT32 && type != VectorType.FLOAT32_BIN) {
+                throw new UnsupportedOperationException("Distance extraction only supported for FLOAT32 ground truth");
+            }
+
+            float[] distances = new float[k];
+            int offset = queryIndex * k * type.getByteSize();
+
+            for (int i = 0; i < k; i++) {
+                distances[i] = data.getFloat(offset + i * Float.BYTES);
+            }
+
+            return distances;
+        }
+    }
+
+    public static class VectorIds {
+        private final int numVectors;
+        private final ByteBuffer data;
+
+        public VectorIds(int numVectors, ByteBuffer data) {
+            this.numVectors = numVectors;
+            this.data = data;
+        }
+
+        public int getNumVectors() { return numVectors; }
+
+        public int getId(int index) {
+            if (index >= numVectors) {
+                throw new IndexOutOfBoundsException("Vector index " + index + " >= " + numVectors);
+            }
+            return data.getInt(index * Integer.BYTES);
+        }
+
+        public int[] getIds() {
+            int[] ids = new int[numVectors];
+            for (int i = 0; i < numVectors; i++) {
+                ids[i] = data.getInt(i * Integer.BYTES);
+            }
+            return ids;
+        }
+    }
+
+    public static GroundTruth loadGroundTruth(String filePath) throws IOException {
+        Path path = Paths.get(filePath);
+        VectorType type = VectorType.fromPath(filePath);
+
+        logger.info("Loading ground truth file: {} (type: {})", filePath, type);
+
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            ByteBuffer header = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
+            channel.read(header);
+            header.flip();
+
+            int numQueries = header.getInt();
+            int k = header.getInt();
+
+            logger.info("Ground truth dimensions: {} queries x {} neighbors ({})", numQueries, k, type);
+
+            long dataSize = (long) numQueries * k * type.getByteSize();
+            ByteBuffer data = ByteBuffer.allocate((int) dataSize).order(ByteOrder.LITTLE_ENDIAN);
+            channel.read(data);
+            data.flip();
+
+            return new GroundTruth(numQueries, k, type, data);
+        }
+    }
+
+    public static VectorIds loadVectorIds(String filePath) throws IOException {
+        Path path = Paths.get(filePath);
+        VectorType type = VectorType.fromPath(filePath);
+
+        if (type != VectorType.INT32) {
+            throw new IllegalArgumentException("Vector IDs must be INT32 format, got: " + type);
+        }
+
+        logger.info("Loading vector IDs file: {}", filePath);
+
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            ByteBuffer header = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
+            channel.read(header);
+            header.flip();
+
+            int numVectors = header.getInt();
+            int cols = header.getInt();
+
+            if (cols != 1) {
+                throw new IllegalArgumentException("Expected 1 column for vector IDs, got: " + cols);
+            }
+
+            logger.info("Vector IDs: {} entries", numVectors);
+
+            long dataSize = (long) numVectors * Integer.BYTES;
+            ByteBuffer data = ByteBuffer.allocate((int) dataSize).order(ByteOrder.LITTLE_ENDIAN);
+            channel.read(data);
+            data.flip();
+
+            return new VectorIds(numVectors, data);
+        }
+    }
+
+    public static double calculateRecallAtK(GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
+        if (searchResults.length < k) {
+            k = searchResults.length;
+        }
+
+        int[] trueNeighbors = groundTruth.getNeighbors(queryIndex);
+        int actualK = Math.min(k, trueNeighbors.length);
+
+        java.util.Set<Integer> trueSet = new java.util.HashSet<>();
+        for (int i = 0; i < actualK; i++) {
+            trueSet.add(trueNeighbors[i]);
+        }
+
+        int matches = 0;
+        for (int i = 0; i < k && i < searchResults.length; i++) {
+            if (trueSet.contains(searchResults[i])) {
+                matches++;
+            }
+        }
+
+        return (double) matches / actualK;
     }
 }

@@ -24,6 +24,7 @@ public class DatasetRegistry {
         private final String baseUrl;
         private final String queryUrl;
         private final String groundTruthUrl;
+        private final String vectorIdsUrl; // Optional vector IDs file
         private final int dimensions;
         private final String metric;
         private final String format;
@@ -31,11 +32,17 @@ public class DatasetRegistry {
 
         public DatasetDefinition(String name, String description, String baseUrl, String queryUrl,
                 String groundTruthUrl, int dimensions, String metric, String format, long sizeBytes) {
+            this(name, description, baseUrl, queryUrl, groundTruthUrl, null, dimensions, metric, format, sizeBytes);
+        }
+
+        public DatasetDefinition(String name, String description, String baseUrl, String queryUrl,
+                String groundTruthUrl, String vectorIdsUrl, int dimensions, String metric, String format, long sizeBytes) {
             this.name = name;
             this.description = description;
             this.baseUrl = baseUrl;
             this.queryUrl = queryUrl;
             this.groundTruthUrl = groundTruthUrl;
+            this.vectorIdsUrl = vectorIdsUrl;
             this.dimensions = dimensions;
             this.metric = metric;
             this.format = format;
@@ -63,6 +70,10 @@ public class DatasetRegistry {
             return groundTruthUrl;
         }
 
+        public String getVectorIdsUrl() {
+            return vectorIdsUrl;
+        }
+
         public int getDimensions() {
             return dimensions;
         }
@@ -85,16 +96,24 @@ public class DatasetRegistry {
         private final String baseVectorPath;
         private final String queryVectorPath;
         private final String groundTruthPath;
+        private final String vectorIdsPath;
         private final BinaryVectorLoader.DatasetInfo baseInfo;
         private final BinaryVectorLoader.DatasetInfo queryInfo;
 
         public Dataset(DatasetDefinition definition, String baseVectorPath, String queryVectorPath,
                 String groundTruthPath, BinaryVectorLoader.DatasetInfo baseInfo,
                 BinaryVectorLoader.DatasetInfo queryInfo) {
+            this(definition, baseVectorPath, queryVectorPath, groundTruthPath, null, baseInfo, queryInfo);
+        }
+
+        public Dataset(DatasetDefinition definition, String baseVectorPath, String queryVectorPath,
+                String groundTruthPath, String vectorIdsPath, BinaryVectorLoader.DatasetInfo baseInfo,
+                BinaryVectorLoader.DatasetInfo queryInfo) {
             this.definition = definition;
             this.baseVectorPath = baseVectorPath;
             this.queryVectorPath = queryVectorPath;
             this.groundTruthPath = groundTruthPath;
+            this.vectorIdsPath = vectorIdsPath;
             this.baseInfo = baseInfo;
             this.queryInfo = queryInfo;
         }
@@ -115,6 +134,10 @@ public class DatasetRegistry {
             return groundTruthPath;
         }
 
+        public String getVectorIdsPath() {
+            return vectorIdsPath;
+        }
+
         public BinaryVectorLoader.DatasetInfo getBaseInfo() {
             return baseInfo;
         }
@@ -128,56 +151,81 @@ public class DatasetRegistry {
     private static final String DATASET_CACHE_DIR = "datasets";
 
     static {
-        // UForm datasets from official USearch benchmarks (smaller, good for testing)
-        DATASETS.put("wiki", new DatasetDefinition(
-                "wiki",
+        // Small datasets (< 10GB) - good for testing
+        DATASETS.put("unum-wiki-1m", new DatasetDefinition(
+                "unum-wiki-1m",
                 "UForm Wiki - 1GB, float32, 256 dimensions",
                 "https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/base.1M.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/query.public.100K.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/groundtruth.public.100K.ibin",
                 256, "ip", "fbin", 1_000_000_000L));
 
-        DATASETS.put("creative-captions", new DatasetDefinition(
-                "creative-captions",
+        DATASETS.put("unum-cc-3m", new DatasetDefinition(
+                "unum-cc-3m",
                 "UForm Creative Captions - 3GB, float32, 256 dimensions",
                 "https://huggingface.co/datasets/unum-cloud/ann-cc-3m/resolve/main/base.3M.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-cc-3m/resolve/main/query.public.100K.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-cc-3m/resolve/main/groundtruth.public.100K.ibin",
                 256, "ip", "fbin", 3_000_000_000L));
 
-        DATASETS.put("text-to-image", new DatasetDefinition(
-                "text-to-image",
-                "Yandex Text-to-Image - 1GB, float32, 200 dimensions",
+        DATASETS.put("yandex-t2i-1m", new DatasetDefinition(
+                "yandex-t2i-1m",
+                "Yandex Text-to-Image subset - 1GB, float32, 200 dimensions",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1M.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/query.public.100K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/groundtruth.public.100K.ibin",
                 200, "cos", "fbin", 1_000_000_000L));
 
-        // Large-scale datasets from official USearch benchmarks (billion-scale)
-        DATASETS.put("spacev-1b", new DatasetDefinition(
-                "spacev-1b",
-                "Microsoft SPACEV-1B - 131GB, int8, 100 dimensions (S3-backed)",
-                "s3://spacev-1b/base.1B.i8bin",
-                "s3://spacev-1b/query.30K.i8bin",
-                "s3://spacev-1b/groundtruth.30K.i32bin",
+        DATASETS.put("yandex-deep-10m", new DatasetDefinition(
+                "yandex-deep-10m",
+                "Yandex Deep10M - 4GB, float32, 96 dimensions",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.10M.fbin",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin",
+                96, "l2", "fbin", 4_000_000_000L));
+
+        DATASETS.put("msft-spacev-100m", new DatasetDefinition(
+                "msft-spacev-100m",
+                "Microsoft SpaceV subset - 9.3GB, int8, 100 dimensions",
+                "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/base.100M.i8bin",
+                "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/query.30K.i8bin",
+                "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/groundtruth.30K.i32bin",
+                "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/ids.100M.i32bin",
+                100, "l2", "i8bin", 9_300_000_000L));
+
+        // Large-scale datasets (> 90GB) - billion-scale
+        DATASETS.put("msft-spacev-1b", new DatasetDefinition(
+                "msft-spacev-1b",
+                "Microsoft SpaceV-1B - 131GB, int8, 100 dimensions",
+                "s3://bigger-ann/spacev-1b/base.1B.i8bin",
+                "s3://bigger-ann/spacev-1b/query.30K.i8bin",
+                "s3://bigger-ann/spacev-1b/groundtruth.30K.i32bin",
+                null, // No separate ID file for full 1B dataset
                 100, "l2", "i8bin", 131_000_000_000L));
 
-        DATASETS.put("deep1b", new DatasetDefinition(
-                "deep1b",
+        DATASETS.put("msft-turing-1b", new DatasetDefinition(
+                "msft-turing-1b",
+                "Microsoft Turing-ANNS - 373GB, float32, 100 dimensions",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/TURING/base.1B.fbin",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/TURING/query.100K.fbin",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/TURING/groundtruth.100K.ibin",
+                100, "l2", "fbin", 373_000_000_000L));
+
+        DATASETS.put("yandex-deep-1b", new DatasetDefinition(
+                "yandex-deep-1b",
                 "Yandex Deep1B - 358GB, float32, 96 dimensions",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.1B.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin",
                 96, "l2", "fbin", 358_000_000_000L));
 
-        // Smaller test dataset for development
-        DATASETS.put("deep10m", new DatasetDefinition(
-                "deep10m",
-                "Yandex Deep10M - 4GB, float32, 96 dimensions (subset of Deep1B)",
-                "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.10M.fbin",
-                "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin",
-                "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin",
-                96, "l2", "fbin", 4_000_000_000L));
+        DATASETS.put("yandex-t2i-1b", new DatasetDefinition(
+                "yandex-t2i-1b",
+                "Yandex Text-to-Image - 750GB, float32, 200 dimensions",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1B.fbin",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/query.public.100K.fbin",
+                "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/groundtruth.public.100K.ibin",
+                200, "cos", "fbin", 750_000_000_000L));
     }
 
     public static Set<String> getAvailableDatasets() {
@@ -213,6 +261,13 @@ public class DatasetRegistry {
         String groundTruthPath = downloadIfNeeded(def.getGroundTruthUrl(),
                 cachePath.resolve("groundtruth" + getFileExtension(def.getGroundTruthUrl())).toString());
 
+        // Download vector IDs if available
+        String vectorIdsPath = null;
+        if (def.getVectorIdsUrl() != null && !def.getVectorIdsUrl().isEmpty()) {
+            vectorIdsPath = downloadIfNeeded(def.getVectorIdsUrl(),
+                    cachePath.resolve("ids" + getFileExtension(def.getVectorIdsUrl())).toString());
+        }
+
         // Load dataset info
         BinaryVectorLoader.DatasetInfo baseInfo = null;
         BinaryVectorLoader.DatasetInfo queryInfo = null;
@@ -220,20 +275,20 @@ public class DatasetRegistry {
         try {
             if (baseVectorPath.endsWith(".fbin") || baseVectorPath.endsWith(".ibin") ||
                     baseVectorPath.endsWith(".dbin") || baseVectorPath.endsWith(".hbin") ||
-                    baseVectorPath.endsWith(".bbin")) {
+                    baseVectorPath.endsWith(".bbin") || baseVectorPath.endsWith(".i8bin")) {
                 baseInfo = BinaryVectorLoader.getDatasetInfo(baseVectorPath);
             }
 
             if (queryVectorPath.endsWith(".fbin") || queryVectorPath.endsWith(".ibin") ||
                     queryVectorPath.endsWith(".dbin") || queryVectorPath.endsWith(".hbin") ||
-                    queryVectorPath.endsWith(".bbin")) {
+                    queryVectorPath.endsWith(".bbin") || queryVectorPath.endsWith(".i8bin")) {
                 queryInfo = BinaryVectorLoader.getDatasetInfo(queryVectorPath);
             }
         } catch (IOException e) {
             logger.warn("Could not load dataset info: {}", e.getMessage());
         }
 
-        return new Dataset(def, baseVectorPath, queryVectorPath, groundTruthPath, baseInfo, queryInfo);
+        return new Dataset(def, baseVectorPath, queryVectorPath, groundTruthPath, vectorIdsPath, baseInfo, queryInfo);
     }
 
     private static String downloadIfNeeded(String url, String localPath) throws IOException {
@@ -242,6 +297,11 @@ public class DatasetRegistry {
         if (Files.exists(path)) {
             logger.info("Using cached file: {}", localPath);
             return localPath;
+        }
+
+        // Handle S3 URLs specially
+        if (url.startsWith("s3://")) {
+            throw new IOException("S3 datasets require manual download. Please run: aws s3 cp " + url + " " + localPath);
         }
 
         logger.info("Downloading: {} -> {}", url, localPath);

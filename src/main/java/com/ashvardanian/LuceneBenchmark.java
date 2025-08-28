@@ -188,9 +188,36 @@ public class LuceneBenchmark {
         Map<Integer, Double> recallResults = new HashMap<>();
         String vectorFieldName = "vector";
 
+        // Try to load ground truth if available
+        BinaryVectorLoader.GroundTruth groundTruth = null;
+        try {
+            String groundTruthPath = dataset.getGroundTruthPath();
+            if (groundTruthPath != null && !groundTruthPath.isEmpty()) {
+                groundTruth = BinaryVectorLoader.loadGroundTruth(groundTruthPath);
+                logger.info("Using ground truth for accurate recall calculation");
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load ground truth, using simplified recall calculation: {}", e.getMessage());
+        }
+
+        // Try to load vector IDs if available
+        BinaryVectorLoader.VectorIds vectorIds = null;
+        try {
+            String vectorIdsPath = dataset.getVectorIdsPath();
+            if (vectorIdsPath != null && !vectorIdsPath.isEmpty()) {
+                vectorIds = BinaryVectorLoader.loadVectorIds(vectorIdsPath);
+                logger.info("Using vector ID mapping for subset support");
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load vector IDs: {}", e.getMessage());
+        }
+
         // Create batches for query vectors
         List<VectorProcessor.VectorBatch> queryBatches = 
             VectorProcessor.createBatches(queryVectors, numQueries, false, 1024); // Lucene always uses float
+
+        final BinaryVectorLoader.GroundTruth finalGroundTruth = groundTruth;
+        final BinaryVectorLoader.VectorIds finalVectorIds = vectorIds;
 
         // For each k value, run concurrent searches
         for (int k : kValues) {
@@ -200,6 +227,8 @@ public class LuceneBenchmark {
                 
                 try {
                     for (int i = 0; i < batch.vectorCount; i++) {
+                        int globalQueryIndex = batch.startIndex + i;
+                        
                         float[] vector = new float[batch.dimensions];
                         System.arraycopy(batch.vectors, i * batch.dimensions, vector, 0, batch.dimensions);
                         
@@ -207,8 +236,27 @@ public class LuceneBenchmark {
                         KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, vector, k);
                         TopDocs topDocs = indexSearcher.search(vectorQuery, k);
                         
-                        // Simplified recall calculation
-                        double queryRecall = Math.min(1.0, (double) topDocs.scoreDocs.length / k);
+                        // Calculate recall using ground truth if available
+                        double queryRecall;
+                        if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
+                            // Extract document IDs from TopDocs and map through vector IDs if available
+                            int[] intResults = new int[topDocs.scoreDocs.length];
+                            for (int j = 0; j < topDocs.scoreDocs.length; j++) {
+                                int docId = topDocs.scoreDocs[j].doc; // Lucene document ID
+                                // For Lucene, document IDs map directly to vector indices
+                                // Then map through vector IDs if available (for subset support)
+                                if (finalVectorIds != null && docId < finalVectorIds.getNumVectors()) {
+                                    intResults[j] = finalVectorIds.getId(docId);
+                                } else {
+                                    intResults[j] = docId;
+                                }
+                            }
+                            queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex, intResults, k);
+                        } else {
+                            // Simplified recall calculation
+                            queryRecall = Math.min(1.0, (double) topDocs.scoreDocs.length / k);
+                        }
+                        
                         batchRecall += queryRecall;
                     }
                 } catch (IOException e) {

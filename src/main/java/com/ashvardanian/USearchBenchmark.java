@@ -141,13 +141,13 @@ public class USearchBenchmark {
         String metric = dataset.getDefinition().getMetric().toLowerCase();
         String usearchMetric;
         if ("l2".equals(metric)) {
-            usearchMetric = Index.Metric.EUCLIDEAN;
+            usearchMetric = Index.Metric.EUCLIDEAN_SQUARED;
         } else if ("ip".equals(metric)) {
             usearchMetric = Index.Metric.INNER_PRODUCT;
         } else if ("cos".equals(metric)) {
             usearchMetric = Index.Metric.COSINE;
         } else {
-            usearchMetric = Index.Metric.EUCLIDEAN; // Default
+            usearchMetric = Index.Metric.EUCLIDEAN_SQUARED; // Default
         }
 
         // Set precision-specific quantization
@@ -175,15 +175,24 @@ public class USearchBenchmark {
                 useByteData = false;
         }
 
-        try (Index index = new Index.Config()
-                .metric(usearchMetric)
-                .quantization(quantization)
-                .dimensions(baseVectors.getCols())
-                .capacity(numBaseVectors)
-                .connectivity(config.getMaxConnections())
-                .expansion_add(config.getEfConstruction())
-                .expansion_search(config.getEfSearch())
-                .build()) {
+        System.out.println(String.format("🔧 Creating USearch index: %,d vectors, %d dims, %s metric, %s precision",
+                numBaseVectors, baseVectors.getCols(), usearchMetric, quantization));
+        
+        // Check available memory before creating index
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long freeMemory = runtime.freeMemory();
+        long estimatedMemoryNeeded = (long) numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough estimate
+        
+        System.out.println(String.format("💾 Memory: Max: %,d MB, Free: %,d MB, Estimated needed: %,d MB",
+                maxMemory / (1024 * 1024), freeMemory / (1024 * 1024), estimatedMemoryNeeded / (1024 * 1024)));
+        
+        if (estimatedMemoryNeeded > maxMemory * 0.8) {
+            System.out.println("⚠️ Warning: Estimated memory usage is very high. Consider reducing --max-vectors");
+        }
+
+        try (Index index = createIndex(usearchMetric, quantization, baseVectors.getCols(), 
+                numBaseVectors, config)) {
 
             // Measure indexing time
             long startIndexing = System.currentTimeMillis();
@@ -241,9 +250,36 @@ public class USearchBenchmark {
             int numQueries, int[] kValues, boolean useByteData) throws Exception {
         Map<Integer, Double> recallResults = new HashMap<>();
 
+        // Try to load ground truth if available
+        BinaryVectorLoader.GroundTruth groundTruth = null;
+        try {
+            String groundTruthPath = dataset.getGroundTruthPath();
+            if (groundTruthPath != null && !groundTruthPath.isEmpty()) {
+                groundTruth = BinaryVectorLoader.loadGroundTruth(groundTruthPath);
+                logger.info("Using ground truth for accurate recall calculation");
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load ground truth, using simplified recall calculation: {}", e.getMessage());
+        }
+
+        // Try to load vector IDs if available
+        BinaryVectorLoader.VectorIds vectorIds = null;
+        try {
+            String vectorIdsPath = dataset.getVectorIdsPath();
+            if (vectorIdsPath != null && !vectorIdsPath.isEmpty()) {
+                vectorIds = BinaryVectorLoader.loadVectorIds(vectorIdsPath);
+                logger.info("Using vector ID mapping for subset support");
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load vector IDs: {}", e.getMessage());
+        }
+
         // Create batches for query vectors
         List<VectorProcessor.VectorBatch> queryBatches = 
             VectorProcessor.createBatches(queryVectors, numQueries, useByteData, 1024);
+
+        final BinaryVectorLoader.GroundTruth finalGroundTruth = groundTruth;
+        final BinaryVectorLoader.VectorIds finalVectorIds = vectorIds;
 
         // For each k value, run concurrent searches
         for (int k : kValues) {
@@ -252,6 +288,8 @@ public class USearchBenchmark {
                 double batchRecall = 0.0;
                 
                 for (int i = 0; i < batch.vectorCount; i++) {
+                    int globalQueryIndex = batch.startIndex + i;
+                    
                     long[] results;
                     if (batch.isByteData) {
                         byte[] vector = new byte[batch.dimensions];
@@ -263,8 +301,26 @@ public class USearchBenchmark {
                         results = index.search(vector, k);
                     }
                     
-                    // Simplified recall calculation
-                    double queryRecall = Math.min(1.0, (double) results.length / k);
+                    // Calculate recall using ground truth if available
+                    double queryRecall;
+                    if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
+                        // Convert long[] to int[] and map through vector IDs if available
+                        int[] intResults = new int[results.length];
+                        for (int j = 0; j < results.length; j++) {
+                            int vectorIndex = (int) results[j];
+                            // Map through vector IDs if available (for subset support)
+                            if (finalVectorIds != null && vectorIndex < finalVectorIds.getNumVectors()) {
+                                intResults[j] = finalVectorIds.getId(vectorIndex);
+                            } else {
+                                intResults[j] = vectorIndex;
+                            }
+                        }
+                        queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex, intResults, k);
+                    } else {
+                        // Simplified recall calculation
+                        queryRecall = Math.min(1.0, (double) results.length / k);
+                    }
+                    
                     batchRecall += queryRecall;
                 }
                 
@@ -277,6 +333,25 @@ public class USearchBenchmark {
         }
 
         return recallResults;
+    }
+
+    private Index createIndex(String metric, String quantization, int dimensions, 
+            int numVectors, BenchmarkConfig config) throws Exception {
+        try {
+            return new Index.Config()
+                    .metric(metric)
+                    .quantization(quantization)
+                    .dimensions(dimensions)
+                    .capacity(numVectors)
+                    .connectivity(config.getMaxConnections())
+                    .expansion_add(config.getEfConstruction())
+                    .expansion_search(config.getEfSearch())
+                    .build();
+        } catch (Error e) {
+            throw new Exception(String.format("Failed to create USearch index for %,d vectors. " +
+                    "Try reducing the number of vectors with --max-vectors parameter. Error: %s",
+                    numVectors, e.getMessage()), e);
+        }
     }
 
     private long getMemoryUsage() {

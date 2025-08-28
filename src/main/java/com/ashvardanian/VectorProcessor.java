@@ -23,23 +23,26 @@ public class VectorProcessor {
         public final boolean isByteData;
         public final int vectorCount;
         public final int dimensions;
+        public final int startIndex; // Starting index in original dataset
 
-        public VectorBatch(long[] keys, float[] vectors, int vectorCount, int dimensions) {
+        public VectorBatch(long[] keys, float[] vectors, int vectorCount, int dimensions, int startIndex) {
             this.keys = keys;
             this.vectors = vectors;
             this.byteVectors = null;
             this.isByteData = false;
             this.vectorCount = vectorCount;
             this.dimensions = dimensions;
+            this.startIndex = startIndex;
         }
 
-        public VectorBatch(long[] keys, byte[] byteVectors, int vectorCount, int dimensions) {
+        public VectorBatch(long[] keys, byte[] byteVectors, int vectorCount, int dimensions, int startIndex) {
             this.keys = keys;
             this.vectors = null;
             this.byteVectors = byteVectors;
             this.isByteData = true;
             this.vectorCount = vectorCount;
             this.dimensions = dimensions;
+            this.startIndex = startIndex;
         }
     }
 
@@ -112,14 +115,14 @@ public class VectorProcessor {
                         batchVectors[i * dimensions + j] = (byte) Math.round(vector[j] * 127.0f);
                     }
                 }
-                batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions));
+                batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));
             } else {
                 float[] batchVectors = new float[currentBatchSize * dimensions];
                 for (int i = 0; i < currentBatchSize; i++) {
                     float[] vector = dataset.getVectorAsFloat(start + i);
                     System.arraycopy(vector, 0, batchVectors, i * dimensions, dimensions);
                 }
-                batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions));
+                batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));
             }
         }
 
