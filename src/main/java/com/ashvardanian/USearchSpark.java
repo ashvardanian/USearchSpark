@@ -24,7 +24,7 @@ public class USearchSpark {
                     .config("spark.sql.adaptive.enabled", "true")
                     .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
                     .getOrCreate();
-            
+
             logger.info("Starting USearchSpark Vector Search Benchmark:");
             logger.info("  Dataset: {}", config.getDatasetName());
             logger.info("  Output: {}", config.getOutputPath());
@@ -45,42 +45,40 @@ public class USearchSpark {
             }
         }
     }
-    
+
     private static void printHelp() {
         String help = """
-            USearchSpark - Vector Search Benchmark (USearch vs Lucene HNSW)
-            
-            USAGE
-              gradle run --args="<dataset> [options]"
-            
-            DATASETS
-              yandex-t2i-1m       1M vectors, 200 dims, float32
-              yandex-deep-1m      1M vectors, 96 dims, float32  
-              msft-spacev-100m    100M vectors, 100 dims, int8 (9.3GB)
-              msft-spacev-1b      1B vectors, 100 dims, int8 (131GB)
-            
-            OPTIONS
-              --max-vectors N     Limit vectors to index (default: all, use -1 for all)
-              --precision LIST    Comma-separated: f32,f16,bf16,i8 (default: all)
-              --output PATH       Results directory (default: benchmark_results)
-              --queries N         Number of queries (default: 10000)
-              --k-values LIST     Comma-separated k values (default: 1,10,100)
-              --ef-construction N HNSW construction param (default: 200)
-              --ef-search N       HNSW search param (default: 200)
-              --help, -h          Show this help
-            
-            EXAMPLES
-              # Quick test with 100K vectors
-              gradle run --args="msft-spacev-100m --max-vectors 100000"
-              
-              # Test only INT8 precision  
-              gradle run --args="yandex-t2i-1m --precision i8"
-              
-              # Full dataset on large machine
-              gradle run --args="msft-spacev-100m --max-vectors -1"
-            
-            NOTE: Large datasets require significant memory. Use --max-vectors to limit.
-            """;
+                USearchSpark - Vector Search Benchmark (USearch vs Lucene HNSW)
+
+                USAGE
+                  gradle run --args="<dataset> [options]"
+
+                DATASETS
+                  yandex-t2i-1m       1M vectors, 200 dims, float32
+                  yandex-deep-1m      1M vectors, 96 dims, float32
+                  msft-spacev-100m    100M vectors, 100 dims, int8 (9.3GB)
+                  msft-spacev-1b      1B vectors, 100 dims, int8 (131GB)
+
+                OPTIONS
+                  --max-vectors N     Limit vectors to index (default: all, use -1 for all)
+                  --precision LIST    Comma-separated: f32,f16,bf16,i8 (default: all)
+                  --output PATH       Results directory (default: benchmark_results)
+                  --queries N         Number of queries (default: 10000)
+                  --k-values LIST     Comma-separated k values (default: 1,10,100)
+                  --help, -h          Show this help
+
+                EXAMPLES
+                  # Quick test with 100K vectors
+                  gradle run --args="msft-spacev-100m --max-vectors 100000"
+
+                  # Test only INT8 precision
+                  gradle run --args="yandex-t2i-1m --precision i8"
+
+                  # Full dataset on large machine
+                  gradle run --args="msft-spacev-100m --max-vectors -1"
+
+                NOTE: Large datasets require significant memory. Use --max-vectors to limit.
+                """;
         System.out.print(help);
     }
 }

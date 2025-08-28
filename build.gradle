@@ -47,8 +47,6 @@ application {
         
         // Performance optimizations
         '-XX:+AlwaysPreTouch',             // Pre-touch all memory
-        '-XX:+UseBiasedLocking',           // Better synchronization
-        '-XX:BiasedLockingStartupDelay=0', // Immediate biased locking
         '-XX:+OptimizeStringConcat',       // Optimize string operations
         
         // JIT compiler tuning

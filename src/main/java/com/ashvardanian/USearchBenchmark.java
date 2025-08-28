@@ -24,18 +24,20 @@ public class USearchBenchmark {
         private final long searchTimeMs;
         private final double throughputQPS;
         private final Map<Integer, Double> recallAtK;
+        private final Map<Integer, Double> ndcgAtK;
         private final long memoryUsageBytes;
         private final int numVectors;
         private final int dimensions;
 
         public BenchmarkResult(BenchmarkConfig.Precision precision, long indexingTimeMs, long searchTimeMs,
-                double throughputQPS, Map<Integer, Double> recallAtK, long memoryUsageBytes,
-                int numVectors, int dimensions) {
+                double throughputQPS, Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK,
+                long memoryUsageBytes, int numVectors, int dimensions) {
             this.precision = precision;
             this.indexingTimeMs = indexingTimeMs;
             this.searchTimeMs = searchTimeMs;
             this.throughputQPS = throughputQPS;
             this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
+            this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
             this.memoryUsageBytes = memoryUsageBytes;
             this.numVectors = numVectors;
             this.dimensions = dimensions;
@@ -62,6 +64,10 @@ public class USearchBenchmark {
             return recallAtK;
         }
 
+        public Map<Integer, Double> getNDCGAtK() {
+            return ndcgAtK;
+        }
+
         public long getMemoryUsageBytes() {
             return memoryUsageBytes;
         }
@@ -72,6 +78,16 @@ public class USearchBenchmark {
 
         public int getDimensions() {
             return dimensions;
+        }
+    }
+
+    public static class SearchMetrics {
+        public final Map<Integer, Double> recallAtK;
+        public final Map<Integer, Double> ndcgAtK;
+
+        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK) {
+            this.recallAtK = recallAtK;
+            this.ndcgAtK = ndcgAtK;
         }
     }
 
@@ -147,8 +163,8 @@ public class USearchBenchmark {
         } else if ("cos".equals(metric)) {
             usearchMetric = Index.Metric.COSINE;
         } else {
-            throw new IllegalArgumentException("Unsupported metric: " + metric + 
-                ". Supported metrics are: l2, ip, cos");
+            throw new IllegalArgumentException("Unsupported metric: " + metric +
+                    ". Supported metrics are: l2, ip, cos");
         }
 
         // Set precision-specific quantization
@@ -178,21 +194,22 @@ public class USearchBenchmark {
 
         System.out.println(String.format("🔧 Creating USearch index: %,d vectors, %d dims, %s metric, %s precision",
                 numBaseVectors, baseVectors.getCols(), usearchMetric, quantization));
-        
+
         // Check available memory before creating index
         Runtime runtime = Runtime.getRuntime();
         long maxMemory = runtime.maxMemory();
         long freeMemory = runtime.freeMemory();
-        long estimatedMemoryNeeded = (long) numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough estimate
-        
+        long estimatedMemoryNeeded = (long) numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough
+                                                                                                                // estimate
+
         System.out.println(String.format("💾 Memory: Max: %,d MB, Free: %,d MB, Estimated needed: %,d MB",
                 maxMemory / (1024 * 1024), freeMemory / (1024 * 1024), estimatedMemoryNeeded / (1024 * 1024)));
-        
+
         if (estimatedMemoryNeeded > maxMemory * 0.8) {
             System.out.println("⚠️ Warning: Estimated memory usage is very high. Consider reducing --max-vectors");
         }
 
-        try (Index index = createIndex(usearchMetric, quantization, baseVectors.getCols(), 
+        try (Index index = createIndex(usearchMetric, quantization, baseVectors.getCols(),
                 numBaseVectors, config)) {
 
             // Measure indexing time
@@ -224,10 +241,10 @@ public class USearchBenchmark {
             long memoryAfter = getMemoryUsage();
             long memoryUsage = memoryAfter - memoryBefore;
 
-            // Measure search time and calculate recall
+            // Measure search time and calculate recall + NDCG
             long startSearch = System.currentTimeMillis();
             System.out.print("🔍 Searching... ");
-            Map<Integer, Double> recallAtK = calculateRecall(index, queryVectors, numQueries, config.getKValues(),
+            SearchMetrics metrics = calculateSearchMetrics(index, queryVectors, numQueries, config.getKValues(),
                     useByteData);
             long searchTime = System.currentTimeMillis() - startSearch;
             System.out.println("✅ Done");
@@ -240,16 +257,18 @@ public class USearchBenchmark {
                     indexingTime,
                     searchTime,
                     throughputQPS,
-                    recallAtK,
+                    metrics.recallAtK,
+                    metrics.ndcgAtK,
                     memoryUsage,
                     numBaseVectors,
                     baseVectors.getCols());
         }
     }
 
-    private Map<Integer, Double> calculateRecall(Index index, BinaryVectorLoader.VectorDataset queryVectors,
+    private SearchMetrics calculateSearchMetrics(Index index, BinaryVectorLoader.VectorDataset queryVectors,
             int numQueries, int[] kValues, boolean useByteData) throws Exception {
         Map<Integer, Double> recallResults = new HashMap<>();
+        Map<Integer, Double> ndcgResults = new HashMap<>();
 
         // Try to load ground truth if available
         BinaryVectorLoader.GroundTruth groundTruth = null;
@@ -276,21 +295,22 @@ public class USearchBenchmark {
         }
 
         // Create batches for query vectors
-        List<VectorProcessor.VectorBatch> queryBatches = 
-            VectorProcessor.createBatches(queryVectors, numQueries, useByteData, 1024);
+        List<VectorProcessor.VectorBatch> queryBatches = VectorProcessor.createBatches(queryVectors, numQueries,
+                useByteData, 1024);
 
         final BinaryVectorLoader.GroundTruth finalGroundTruth = groundTruth;
         final BinaryVectorLoader.VectorIds finalVectorIds = vectorIds;
 
         // For each k value, run concurrent searches
         for (int k : kValues) {
-            // Concurrent search processing
-            List<Double> recalls = VectorProcessor.processBatches(queryBatches, batch -> {
+            // Concurrent search processing - return both recall and NDCG
+            List<SearchMetrics> batchMetrics = VectorProcessor.processBatches(queryBatches, batch -> {
                 double batchRecall = 0.0;
-                
+                double batchNdcg = 0.0;
+
                 for (int i = 0; i < batch.vectorCount; i++) {
                     int globalQueryIndex = batch.startIndex + i;
-                    
+
                     long[] results;
                     if (batch.isByteData) {
                         byte[] vector = new byte[batch.dimensions];
@@ -301,7 +321,7 @@ public class USearchBenchmark {
                         System.arraycopy(batch.vectors, i * batch.dimensions, vector, 0, batch.dimensions);
                         results = index.search(vector, k);
                     }
-                    
+
                     // Calculate recall using ground truth if available
                     double queryRecall;
                     if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
@@ -316,27 +336,38 @@ public class USearchBenchmark {
                                 intResults[j] = vectorIndex;
                             }
                         }
-                        queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex, intResults, k);
+                        queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex,
+                                intResults, k);
+                        double queryNdcg = BinaryVectorLoader.calculateNDCGAtK(finalGroundTruth, globalQueryIndex,
+                                intResults, k);
+                        batchNdcg += queryNdcg;
                     } else {
                         // Simplified recall calculation
                         queryRecall = Math.min(1.0, (double) results.length / k);
+                        batchNdcg += queryRecall; // Use same as recall when no ground truth
                     }
-                    
+
                     batchRecall += queryRecall;
                 }
-                
-                return batchRecall;
+
+                Map<Integer, Double> singleRecall = new HashMap<>();
+                Map<Integer, Double> singleNdcg = new HashMap<>();
+                singleRecall.put(k, batchRecall);
+                singleNdcg.put(k, batchNdcg);
+                return new SearchMetrics(singleRecall, singleNdcg);
             }, "Searching k=" + k);
-            
-            // Aggregate recall from all batches
-            double totalRecall = recalls.stream().mapToDouble(Double::doubleValue).sum();
+
+            // Aggregate recall and NDCG from all batches
+            double totalRecall = batchMetrics.stream().mapToDouble(m -> m.recallAtK.get(k)).sum();
+            double totalNdcg = batchMetrics.stream().mapToDouble(m -> m.ndcgAtK.get(k)).sum();
             recallResults.put(k, totalRecall / numQueries);
+            ndcgResults.put(k, totalNdcg / numQueries);
         }
 
-        return recallResults;
+        return new SearchMetrics(recallResults, ndcgResults);
     }
 
-    private Index createIndex(String metric, String quantization, int dimensions, 
+    private Index createIndex(String metric, String quantization, int dimensions,
             int numVectors, BenchmarkConfig config) throws Exception {
         try {
             return new Index.Config()
@@ -344,9 +375,6 @@ public class USearchBenchmark {
                     .quantization(quantization)
                     .dimensions(dimensions)
                     .capacity(numVectors)
-                    .connectivity(config.getMaxConnections())
-                    .expansion_add(config.getEfConstruction())
-                    .expansion_search(config.getEfSearch())
                     .build();
         } catch (Error e) {
             String errorMsg = String.format("Failed to create USearch index for %,d vectors.\n" +
@@ -395,7 +423,10 @@ public class USearchBenchmark {
                     Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 
             for (Map.Entry<Integer, Double> entry : result.getRecallAtK().entrySet()) {
-                System.out.println(String.format("  Recall@%d: %.4f", entry.getKey(), entry.getValue()));
+                int k = entry.getKey();
+                double recall = entry.getValue();
+                double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0);
+                System.out.println(String.format("  Recall@%d: %.4f, NDCG@%d: %.4f", k, recall, k, ndcg));
             }
 
             System.out.println();

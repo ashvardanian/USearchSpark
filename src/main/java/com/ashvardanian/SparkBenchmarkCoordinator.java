@@ -134,8 +134,8 @@ public class SparkBenchmarkCoordinator {
         // Run USearch benchmarks (multithreaded)
         progressAccumulator.add(20);
         USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
-        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = 
-            usearchBenchmark.runBenchmarks();
+        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = usearchBenchmark
+                .runBenchmarks();
 
         progressAccumulator.add(40);
 
@@ -160,7 +160,6 @@ public class SparkBenchmarkCoordinator {
                 usearchResults,
                 luceneResult);
     }
-
 
     private void printBenchmarkComparison(
             Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,

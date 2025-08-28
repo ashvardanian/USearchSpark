@@ -35,9 +35,17 @@ public class BinaryVectorLoader {
             this.javaTypeSize = javaTypeSize;
         }
 
-        public String getExtension() { return extension; }
-        public int getByteSize() { return byteSize; }
-        public int getJavaTypeSize() { return javaTypeSize; }
+        public String getExtension() {
+            return extension;
+        }
+
+        public int getByteSize() {
+            return byteSize;
+        }
+
+        public int getJavaTypeSize() {
+            return javaTypeSize;
+        }
 
         public static VectorType fromPath(String path) {
             String lowerPath = path.toLowerCase();
@@ -63,10 +71,21 @@ public class BinaryVectorLoader {
             this.data = data;
         }
 
-        public int getRows() { return rows; }
-        public int getCols() { return cols; }
-        public VectorType getType() { return type; }
-        public ByteBuffer getData() { return data; }
+        public int getRows() {
+            return rows;
+        }
+
+        public int getCols() {
+            return cols;
+        }
+
+        public VectorType getType() {
+            return type;
+        }
+
+        public ByteBuffer getData() {
+            return data;
+        }
 
         public float[] getVectorAsFloat(int index) {
             if (index >= rows) {
@@ -75,7 +94,7 @@ public class BinaryVectorLoader {
 
             float[] result = new float[cols];
             int offset = index * cols * type.getByteSize();
-            
+
             switch (type) {
                 case FLOAT32:
                     for (int i = 0; i < cols; i++) {
@@ -112,10 +131,10 @@ public class BinaryVectorLoader {
                 default:
                     throw new UnsupportedOperationException("Unsupported vector type: " + type);
             }
-            
+
             return result;
         }
-        
+
         public byte[] getVectorAsByte(int index) {
             if (index >= rows) {
                 throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
@@ -123,7 +142,7 @@ public class BinaryVectorLoader {
 
             byte[] result = new byte[cols];
             int offset = index * cols * type.getByteSize();
-            
+
             switch (type) {
                 case INT8:
                     for (int i = 0; i < cols; i++) {
@@ -145,10 +164,10 @@ public class BinaryVectorLoader {
                     }
                     break;
             }
-            
+
             return result;
         }
-        
+
         public boolean isI8Data() {
             return type == VectorType.INT8;
         }
@@ -169,36 +188,36 @@ public class BinaryVectorLoader {
     public static VectorDataset loadVectors(String filePath, int startRow, int maxRows) throws IOException {
         Path path = Paths.get(filePath);
         VectorType type = VectorType.fromPath(filePath);
-        
+
         logger.debug("Loading vector file: {} (type: {})", filePath, type);
-        
+
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             // Read header (8 bytes: rows and columns as 32-bit integers)
             ByteBuffer header = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
             channel.read(header);
             header.flip();
-            
+
             int totalRows = header.getInt();
             int cols = header.getInt();
-            
+
             logger.debug("Dataset dimensions: {} x {} ({})", totalRows, cols, type);
-            
+
             int actualRows = maxRows > 0 ? Math.min(maxRows, totalRows - startRow) : totalRows - startRow;
             if (startRow >= totalRows) {
                 throw new IndexOutOfBoundsException("Start row " + startRow + " >= total rows " + totalRows);
             }
-            
+
             // Calculate data size and offset
             long vectorDataSize = (long) totalRows * cols * type.getByteSize();
             long startOffset = 8 + (long) startRow * cols * type.getByteSize();
             long readSize = (long) actualRows * cols * type.getByteSize();
-            
+
             // Read vector data
             channel.position(startOffset);
             ByteBuffer data = ByteBuffer.allocate((int) readSize).order(ByteOrder.LITTLE_ENDIAN);
             channel.read(data);
             data.flip();
-            
+
             logger.debug("Loaded {} vectors starting from row {}", actualRows, startRow);
             return new VectorDataset(actualRows, cols, type, data);
         }
@@ -209,7 +228,7 @@ public class BinaryVectorLoader {
         int sign = (halfFloat & 0x8000) << 16;
         int exponent = (halfFloat & 0x7C00) >> 10;
         int mantissa = halfFloat & 0x03FF;
-        
+
         if (exponent == 0) {
             if (mantissa == 0) {
                 return Float.intBitsToFloat(sign); // Zero
@@ -226,7 +245,7 @@ public class BinaryVectorLoader {
             // Infinity or NaN
             return Float.intBitsToFloat(sign | 0x7F800000 | (mantissa << 13));
         }
-        
+
         exponent += (127 - 15);
         return Float.intBitsToFloat(sign | (exponent << 23) | (mantissa << 13));
     }
@@ -244,24 +263,35 @@ public class BinaryVectorLoader {
             this.type = type;
         }
 
-        public String getPath() { return path; }
-        public int getRows() { return rows; }
-        public int getCols() { return cols; }
-        public VectorType getType() { return type; }
+        public String getPath() {
+            return path;
+        }
+
+        public int getRows() {
+            return rows;
+        }
+
+        public int getCols() {
+            return cols;
+        }
+
+        public VectorType getType() {
+            return type;
+        }
     }
 
     public static DatasetInfo getDatasetInfo(String filePath) throws IOException {
         Path path = Paths.get(filePath);
         VectorType type = VectorType.fromPath(filePath);
-        
+
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             ByteBuffer header = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
             channel.read(header);
             header.flip();
-            
+
             int rows = header.getInt();
             int cols = header.getInt();
-            
+
             return new DatasetInfo(filePath, rows, cols, type);
         }
     }
@@ -279,9 +309,17 @@ public class BinaryVectorLoader {
             this.data = data;
         }
 
-        public int getNumQueries() { return numQueries; }
-        public int getK() { return k; }
-        public VectorType getType() { return type; }
+        public int getNumQueries() {
+            return numQueries;
+        }
+
+        public int getK() {
+            return k;
+        }
+
+        public VectorType getType() {
+            return type;
+        }
 
         public int[] getNeighbors(int queryIndex) {
             if (queryIndex >= numQueries) {
@@ -327,7 +365,9 @@ public class BinaryVectorLoader {
             this.data = data;
         }
 
-        public int getNumVectors() { return numVectors; }
+        public int getNumVectors() {
+            return numVectors;
+        }
 
         public int getId(int index) {
             if (index >= numVectors) {
@@ -424,5 +464,44 @@ public class BinaryVectorLoader {
         }
 
         return (double) matches / actualK;
+    }
+
+    /**
+     * Calculate NDCG@k (Normalized Discounted Cumulative Gain)
+     * NDCG considers the position of correct results - earlier positions get higher
+     * scores
+     */
+    public static double calculateNDCGAtK(GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
+        if (searchResults.length == 0 || k == 0) {
+            return 0.0;
+        }
+
+        int[] trueNeighbors = groundTruth.getNeighbors(queryIndex);
+        int actualK = Math.min(k, Math.min(searchResults.length, trueNeighbors.length));
+
+        // Create relevance map (1.0 for relevant, 0.0 for non-relevant)
+        java.util.Set<Integer> relevantSet = new java.util.HashSet<>();
+        for (int i = 0; i < trueNeighbors.length; i++) {
+            relevantSet.add(trueNeighbors[i]);
+        }
+
+        // Calculate DCG (Discounted Cumulative Gain) for search results
+        double dcg = 0.0;
+        for (int i = 0; i < Math.min(actualK, searchResults.length); i++) {
+            double relevance = relevantSet.contains(searchResults[i]) ? 1.0 : 0.0;
+            // DCG formula: relevance / log2(position + 1), where position is 1-indexed
+            dcg += relevance / (Math.log(i + 2) / Math.log(2));
+        }
+
+        // Calculate IDCG (Ideal DCG) - perfect ranking
+        double idcg = 0.0;
+        int relevantCount = Math.min(actualK, relevantSet.size());
+        for (int i = 0; i < relevantCount; i++) {
+            // All relevant items get relevance = 1.0 in ideal ranking
+            idcg += 1.0 / (Math.log(i + 2) / Math.log(2));
+        }
+
+        // NDCG = DCG / IDCG
+        return idcg > 0 ? dcg / idcg : 0.0;
     }
 }

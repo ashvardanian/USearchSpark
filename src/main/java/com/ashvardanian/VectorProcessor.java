@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * Multithreaded batch processor for vector operations
  */
 public class VectorProcessor {
-    private static final int DEFAULT_BATCH_SIZE = 1024;
     private static final int DEFAULT_THREAD_COUNT = Runtime.getRuntime().availableProcessors();
 
     public static class VectorBatch {
@@ -66,11 +65,11 @@ public class VectorProcessor {
 
             if (batches % 10 == 0 || batches == totalBatches) {
                 long elapsedMs = System.currentTimeMillis() - startTime.get();
-                double vectorsPerSec = elapsedMs > 0 ? (vectors * 1000.0) / elapsedMs : 0;
+                double ips = elapsedMs > 0 ? (vectors * 1000.0) / elapsedMs : 0;
                 double progress = (double) batches / totalBatches * 100;
 
-                System.out.printf("\r🔄 %s: %.1f%% (%d/%d batches, %,d vectors, %.0f vectors/sec)",
-                        operationName, progress, batches, totalBatches, vectors, vectorsPerSec);
+                System.out.printf("\r🔄 %s: %.1f%% (%d/%d batches, %,d vectors, %.0f IPS)",
+                        operationName, progress, batches, totalBatches, vectors, ips);
 
                 if (batches == totalBatches) {
                     System.out.println();
@@ -80,9 +79,9 @@ public class VectorProcessor {
 
         public void completed() {
             long elapsedMs = System.currentTimeMillis() - startTime.get();
-            double vectorsPerSec = elapsedMs > 0 ? (totalVectors * 1000.0) / elapsedMs : 0;
-            System.out.printf("✅ %s completed: %,d vectors in %,dms (%.0f vectors/sec)%n",
-                    operationName, totalVectors, elapsedMs, vectorsPerSec);
+            double ips = elapsedMs > 0 ? (totalVectors * 1000.0) / elapsedMs : 0;
+            System.out.printf("✅ %s completed: %,d vectors in %,dms (%.0f IPS)%n",
+                    operationName, totalVectors, elapsedMs, ips);
         }
     }
 

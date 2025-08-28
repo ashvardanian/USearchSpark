@@ -29,35 +29,71 @@ import org.slf4j.LoggerFactory;
 public class LuceneBenchmark {
     private static final Logger logger = LoggerFactory.getLogger(LuceneBenchmark.class);
 
+    public static class SearchMetrics {
+        public final Map<Integer, Double> recallAtK;
+        public final Map<Integer, Double> ndcgAtK;
+
+        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK) {
+            this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
+            this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
+        }
+    }
+
     public static class BenchmarkResult {
         private final long indexingTimeMs;
         private final long searchTimeMs;
         private final double throughputQPS;
         private final Map<Integer, Double> recallAtK;
+        private final Map<Integer, Double> ndcgAtK;
         private final long memoryUsageBytes;
         private final int numVectors;
         private final int dimensions;
 
         public BenchmarkResult(long indexingTimeMs, long searchTimeMs, double throughputQPS,
-                Map<Integer, Double> recallAtK, long memoryUsageBytes,
+                Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long memoryUsageBytes,
                 int numVectors, int dimensions) {
             this.indexingTimeMs = indexingTimeMs;
             this.searchTimeMs = searchTimeMs;
             this.throughputQPS = throughputQPS;
             this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
+            this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
             this.memoryUsageBytes = memoryUsageBytes;
             this.numVectors = numVectors;
             this.dimensions = dimensions;
         }
 
         // Getters
-        public long getIndexingTimeMs() { return indexingTimeMs; }
-        public long getSearchTimeMs() { return searchTimeMs; }
-        public double getThroughputQPS() { return throughputQPS; }
-        public Map<Integer, Double> getRecallAtK() { return recallAtK; }
-        public long getMemoryUsageBytes() { return memoryUsageBytes; }
-        public int getNumVectors() { return numVectors; }
-        public int getDimensions() { return dimensions; }
+        public long getIndexingTimeMs() {
+            return indexingTimeMs;
+        }
+
+        public long getSearchTimeMs() {
+            return searchTimeMs;
+        }
+
+        public double getThroughputQPS() {
+            return throughputQPS;
+        }
+
+        public Map<Integer, Double> getRecallAtK() {
+            return recallAtK;
+        }
+
+        public Map<Integer, Double> getNDCGAtK() {
+            return ndcgAtK;
+        }
+
+        public long getMemoryUsageBytes() {
+            return memoryUsageBytes;
+        }
+
+        public int getNumVectors() {
+            return numVectors;
+        }
+
+        public int getDimensions() {
+            return dimensions;
+        }
     }
 
     private final BenchmarkConfig config;
@@ -81,7 +117,8 @@ public class LuceneBenchmark {
         int numBaseVectors = baseVectors.getRows();
         if (config.getMaxVectors() > 0 && config.getMaxVectors() < baseVectors.getRows()) {
             numBaseVectors = (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE);
-            System.out.println("🔢 Limiting base vectors to " + String.format("%,d", numBaseVectors) + " for faster testing");
+            System.out.println(
+                    "🔢 Limiting base vectors to " + String.format("%,d", numBaseVectors) + " for faster testing");
         }
 
         System.out.println("📊 Using " + String.format("%,d", numBaseVectors) + " base vectors and " +
@@ -105,7 +142,8 @@ public class LuceneBenchmark {
         // Create in-memory directory for index
         Directory directory = new ByteBuffersDirectory();
 
-        // Configure index writer with multithreading
+        // Configure index writer with multithreading - use Lucene's default HNSW
+        // parameters
         IndexWriterConfig indexConfig = new IndexWriterConfig();
         indexConfig.setUseCompoundFile(false);
         indexConfig.setMaxBufferedDocs(1000);
@@ -119,8 +157,8 @@ public class LuceneBenchmark {
         long memoryBefore = getMemoryUsage();
 
         // Create batches for multithreaded indexing
-        List<VectorProcessor.VectorBatch> indexingBatches = 
-            VectorProcessor.createBatches(baseVectors, numBaseVectors, false, 1024);
+        List<VectorProcessor.VectorBatch> indexingBatches = VectorProcessor.createBatches(baseVectors, numBaseVectors,
+                false, 1024);
 
         // Multithreaded batch indexing
         VectorProcessor.processBatches(indexingBatches, batch -> {
@@ -138,10 +176,11 @@ public class LuceneBenchmark {
         DirectoryReader indexReader = DirectoryReader.open(directory);
         IndexSearcher indexSearcher = new IndexSearcher(indexReader);
 
-        // Measure search time and calculate recall
+        // Measure search time and calculate recall & NDCG
         long startSearch = System.currentTimeMillis();
         System.out.print("🔍 Searching... ");
-        Map<Integer, Double> recallAtK = calculateRecall(indexSearcher, queryVectors, numQueries, config.getKValues());
+        SearchMetrics searchMetrics = calculateSearchMetrics(indexSearcher, queryVectors, numQueries,
+                config.getKValues());
         long searchTime = System.currentTimeMillis() - startSearch;
         System.out.println("✅ Done");
 
@@ -152,14 +191,16 @@ public class LuceneBenchmark {
         indexReader.close();
         directory.close();
 
-        System.out.println(String.format("✅ Lucene HNSW benchmark completed - Indexing: %,dms, Search: %,dms, Throughput: %,.0f QPS",
+        System.out.println(String.format(
+                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Search: %,dms, Throughput: %,.0f QPS",
                 indexingTime, searchTime, throughputQPS));
 
         return new BenchmarkResult(
                 indexingTime,
                 searchTime,
                 throughputQPS,
-                recallAtK,
+                searchMetrics.recallAtK,
+                searchMetrics.ndcgAtK,
                 memoryUsage,
                 numBaseVectors,
                 baseVectors.getCols());
@@ -186,10 +227,11 @@ public class LuceneBenchmark {
         indexWriter.addDocuments(documents);
     }
 
-    private Map<Integer, Double> calculateRecall(IndexSearcher indexSearcher,
+    private SearchMetrics calculateSearchMetrics(IndexSearcher indexSearcher,
             BinaryVectorLoader.VectorDataset queryVectors,
             int numQueries, int[] kValues) throws Exception {
         Map<Integer, Double> recallResults = new HashMap<>();
+        Map<Integer, Double> ndcgResults = new HashMap<>();
         String vectorFieldName = "vector";
 
         // Try to load ground truth if available
@@ -217,62 +259,72 @@ public class LuceneBenchmark {
         }
 
         // Create batches for query vectors
-        List<VectorProcessor.VectorBatch> queryBatches = 
-            VectorProcessor.createBatches(queryVectors, numQueries, false, 1024); // Lucene always uses float
+        List<VectorProcessor.VectorBatch> queryBatches = VectorProcessor.createBatches(queryVectors, numQueries, false,
+                1024); // Lucene always uses float
 
         final BinaryVectorLoader.GroundTruth finalGroundTruth = groundTruth;
         final BinaryVectorLoader.VectorIds finalVectorIds = vectorIds;
 
         // For each k value, run concurrent searches
         for (int k : kValues) {
-            // Concurrent search processing
-            List<Double> recalls = VectorProcessor.processBatches(queryBatches, batch -> {
+            // Concurrent search processing - now returns [recall, ndcg] pairs
+            List<double[]> metrics = VectorProcessor.processBatches(queryBatches, batch -> {
                 double batchRecall = 0.0;
-                
+                double batchNdcg = 0.0;
+
                 try {
                     for (int i = 0; i < batch.vectorCount; i++) {
                         int globalQueryIndex = batch.startIndex + i;
-                        
+
                         float[] vector = new float[batch.dimensions];
                         System.arraycopy(batch.vectors, i * batch.dimensions, vector, 0, batch.dimensions);
-                        
+
                         // Perform HNSW search
                         KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, vector, k);
                         TopDocs topDocs = indexSearcher.search(vectorQuery, k);
-                        
-                        // Calculate recall using ground truth if available
+
+                        // Calculate recall and NDCG using ground truth if available
                         double queryRecall;
+                        double queryNdcg;
                         if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
                             // Extract stored document IDs from search results
                             int[] intResults = new int[topDocs.scoreDocs.length];
                             for (int j = 0; j < topDocs.scoreDocs.length; j++) {
                                 int luceneDocId = topDocs.scoreDocs[j].doc;
                                 // Retrieve the stored ID field - this is our consistent [0,N) key
-                                org.apache.lucene.document.Document doc = indexSearcher.storedFields().document(luceneDocId);
+                                org.apache.lucene.document.Document doc = indexSearcher.storedFields()
+                                        .document(luceneDocId);
                                 long storedId = doc.getField("id").numericValue().longValue();
                                 intResults[j] = (int) storedId;
                             }
-                            queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex, intResults, k);
+                            queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex,
+                                    intResults, k);
+                            queryNdcg = BinaryVectorLoader.calculateNDCGAtK(finalGroundTruth, globalQueryIndex,
+                                    intResults, k);
                         } else {
-                            // Simplified recall calculation
+                            // Simplified recall calculation (no NDCG without ground truth)
                             queryRecall = Math.min(1.0, (double) topDocs.scoreDocs.length / k);
+                            queryNdcg = 0.0;
                         }
-                        
+
                         batchRecall += queryRecall;
+                        batchNdcg += queryNdcg;
                     }
                 } catch (IOException e) {
                     throw new RuntimeException("Search failed", e);
                 }
-                
-                return batchRecall;
+
+                return new double[] { batchRecall, batchNdcg };
             }, "Searching k=" + k);
-            
-            // Aggregate recall from all batches
-            double totalRecall = recalls.stream().mapToDouble(Double::doubleValue).sum();
+
+            // Aggregate recall and NDCG from all batches
+            double totalRecall = metrics.stream().mapToDouble(m -> m[0]).sum();
+            double totalNdcg = metrics.stream().mapToDouble(m -> m[1]).sum();
             recallResults.put(k, totalRecall / numQueries);
+            ndcgResults.put(k, totalNdcg / numQueries);
         }
 
-        return recallResults;
+        return new SearchMetrics(recallResults, ndcgResults);
     }
 
     private long getMemoryUsage() {
@@ -298,10 +350,14 @@ public class LuceneBenchmark {
         System.out.println(String.format("  Indexing Time: %,d ms", result.getIndexingTimeMs()));
         System.out.println(String.format("  Search Time: %,d ms", result.getSearchTimeMs()));
         System.out.println(String.format("  Throughput: %,.0f QPS", result.getThroughputQPS()));
-        System.out.println(String.format("  Memory Usage: %,d MB", Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
+        System.out.println(
+                String.format("  Memory Usage: %,d MB", Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 
         for (Map.Entry<Integer, Double> entry : result.getRecallAtK().entrySet()) {
-            System.out.println(String.format("  Recall@%d: %.4f", entry.getKey(), entry.getValue()));
+            int k = entry.getKey();
+            double recall = entry.getValue();
+            double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0);
+            System.out.println(String.format("  Recall@%d: %.4f, NDCG@%d: %.4f", k, recall, k, ndcg));
         }
 
         System.out.println();

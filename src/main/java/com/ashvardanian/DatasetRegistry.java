@@ -36,7 +36,8 @@ public class DatasetRegistry {
         }
 
         public DatasetDefinition(String name, String description, String baseUrl, String queryUrl,
-                String groundTruthUrl, String vectorIdsUrl, int dimensions, String metric, String format, long sizeBytes) {
+                String groundTruthUrl, String vectorIdsUrl, int dimensions, String metric, String format,
+                long sizeBytes) {
             this.name = name;
             this.description = description;
             this.baseUrl = baseUrl;
@@ -302,8 +303,8 @@ public class DatasetRegistry {
         // Handle S3 URLs specially
         if (url.startsWith("s3://")) {
             throw new IOException("S3 datasets require manual download.\n" +
-                "Please run: aws s3 cp " + url + " " + localPath + "\n" +
-                "Or use AWS CLI: aws configure && aws s3 sync s3://bigger-ann/spacev-1b/ datasets/");
+                    "Please run: aws s3 cp " + url + " " + localPath + "\n" +
+                    "Or use AWS CLI: aws configure && aws s3 sync s3://bigger-ann/spacev-1b/ datasets/");
         }
 
         logger.info("Downloading: {} -> {}", url, localPath);
@@ -312,10 +313,10 @@ public class DatasetRegistry {
             Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING);
         } catch (Exception e) {
             String errorMsg = "Failed to download from " + url + "\n" +
-                "Possible causes:\n" +
-                "  1. Network timeout - try again\n" +
-                "  2. Large file - manually download: wget " + url + " -O " + localPath + "\n" +
-                "  3. Access denied - check if dataset URL is still valid";
+                    "Possible causes:\n" +
+                    "  1. Network timeout - try again\n" +
+                    "  2. Large file - manually download: wget " + url + " -O " + localPath + "\n" +
+                    "  3. Access denied - check if dataset URL is still valid";
             throw new IOException(errorMsg, e);
         }
 

@@ -17,12 +17,6 @@
     "clustering_sample_rate": 0.01,
     "kmeans_iterations": 10
   },
-  "indexing": {
-    "index_type": "hnsw",
-    "connectivity": 16,
-    "ef_construction": 200,
-    "ef_search": 50
-  },
   "query": {
     "default_top_k": 10,
     "search_timeout_ms": 30000,
