@@ -165,31 +165,8 @@ public class SparkBenchmarkCoordinator {
     private void printBenchmarkComparison(
             Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
             LuceneBenchmark.BenchmarkResult luceneResult) {
-        System.out.println("\n=== Vector Search Benchmark Comparison ===");
-        System.out.printf("%-12s %-15s %-15s %-15s %-15s%n", "Implementation", "Indexing (ms)", "Search (ms)",
-                "Throughput (QPS)", "Memory (MB)");
-        System.out.println("=".repeat(80));
-
-        // Print USearch results
-        for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry : usearchResults.entrySet()) {
-            USearchBenchmark.BenchmarkResult result = entry.getValue();
-            System.out.printf("%-12s %-15s %-15s %-15s %-15s%n",
-                    "USearch " + entry.getKey().getName(),
-                    String.format("%,d", result.getIndexingTimeMs()),
-                    String.format("%,d", result.getSearchTimeMs()),
-                    String.format("%,.0f", result.getThroughputQPS()),
-                    String.format("%,d", Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
-        }
-
-        // Print Lucene result
-        System.out.printf("%-12s %-15s %-15s %-15s %-15s%n",
-                "Lucene F32",
-                String.format("%,d", luceneResult.getIndexingTimeMs()),
-                String.format("%,d", luceneResult.getSearchTimeMs()),
-                String.format("%,.0f", luceneResult.getThroughputQPS()),
-                String.format("%,d", Math.round(luceneResult.getMemoryUsageBytes() / (1024.0 * 1024.0))));
-
-        System.out.println();
+        // Use the new AsciiTable-based comparison table
+        BenchmarkResultsTable.printComparisonTable(usearchResults, luceneResult);
     }
 
     private void saveResults(BenchmarkConfig config, BenchmarkResults results) throws IOException {
