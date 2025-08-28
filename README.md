@@ -12,7 +12,15 @@ gradle run --args="yandex-deep-10m --max-vectors 100000" # limit vectors for tes
 gradle run --args="msft-spacev-100m --precision f32,i8" # test specific precisions
 ```
 
-Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing output like:
+When running on larger machines, consider overriding the following JVM settings.
+For 750+ GB machines - consider a massive 512 GB heap:
+
+```bash
+export JAVA_OPTS="-Xmx512g -Xms64g -XX:G1HeapRegionSize=64m"
+gradle run --args="msft-spacev-1b"
+```
+
+Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing clean output like:
 
 ```
 Implementation | Precision | Index (ms) | Search (ms) | QPS    | Recall@1 | Recall@10

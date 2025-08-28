@@ -10,8 +10,9 @@ version = '0.1.0-SNAPSHOT'
 application {
     mainClass = 'com.ashvardanian.USearchSpark'
     
-    // Java 21 compatibility with Spark 4.0
-    applicationDefaultJvmArgs = [
+    // Base JVM args - can be overridden with JAVA_OPTS environment variable
+    def baseJvmArgs = [
+        // Java module system compatibility
         '--add-opens=java.base/java.lang=ALL-UNNAMED',
         '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED',
         '--add-opens=java.base/java.lang.reflect=ALL-UNNAMED',
@@ -27,8 +28,51 @@ application {
         '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
         '--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED',
         '--add-modules=jdk.incubator.vector',  // Enable Vector API for Lucene performance
+        
+        // Memory settings for large-scale benchmarking (750+ GB machine)
+        '-Xms64g',          // Start with 64GB heap (pre-allocate for performance)
+        '-Xmx512g',         // Max 512GB heap (leave ~200GB for OS/Spark/USearch native)
+        '-XX:NewRatio=1',   // 50% young generation for heavy allocation
+        
+        // GC tuning for massive heap (512GB)
+        '-XX:+UseG1GC',                    // G1 GC scales well to large heaps
+        '-XX:MaxGCPauseMillis=200',        // Allow slightly longer pauses for huge heap
+        '-XX:G1HeapRegionSize=64m',        // Much larger regions for 512GB heap
+        '-XX:G1MixedGCCountTarget=16',     // More mixed GC cycles for large heap
+        '-XX:G1ConcRefinementThreads=32',  // More concurrent threads for huge heap
+        '-XX:+UseStringDeduplication',     // Save memory on strings
+        '-XX:+UnlockExperimentalVMOptions',
+        '-XX:+UseTransparentHugePages',    // Critical for large heap performance
+        '-XX:+UseLargePages',              // Enable large pages
+        
+        // Performance optimizations
+        '-XX:+AlwaysPreTouch',             // Pre-touch all memory
+        '-XX:+UseBiasedLocking',           // Better synchronization
+        '-XX:BiasedLockingStartupDelay=0', // Immediate biased locking
+        '-XX:+OptimizeStringConcat',       // Optimize string operations
+        
+        // JIT compiler tuning
+        '-XX:+UseCompressedOops',          // Compressed object pointers
+        '-XX:ReservedCodeCacheSize=512m',  // Larger code cache
+        '-XX:InitialCodeCacheSize=256m',
+        '-XX:CompileThreshold=1000',       // Faster JIT compilation
+        
+        // Library path
         '-Djava.library.path=/tmp'
     ]
+    
+    // Allow JAVA_OPTS environment variable to override defaults
+    def javaOpts = System.getenv('JAVA_OPTS')
+    if (javaOpts) {
+        println "🔧 Using JAVA_OPTS: ${javaOpts}"
+        def customArgs = javaOpts.split('\\s+').findAll { it.trim() }
+        // Module system compatibility args are always needed
+        def requiredArgs = baseJvmArgs.findAll { it.startsWith('--add-opens') || it.startsWith('--add-modules') }
+        applicationDefaultJvmArgs = requiredArgs + customArgs
+    } else {
+        println "📋 Using default JVM settings for 750+ GB machine (override with JAVA_OPTS)"
+        applicationDefaultJvmArgs = baseJvmArgs
+    }
 }
 
 repositories {
@@ -82,6 +126,9 @@ dependencies {
     
     // Logging
     implementation 'org.slf4j:slf4j-simple:1.7.36'
+    
+    // CLI table formatting
+    implementation 'de.vandermeer:asciitable:0.3.2'
     
     // Test dependencies
     testImplementation 'junit:junit:4.13.2'
