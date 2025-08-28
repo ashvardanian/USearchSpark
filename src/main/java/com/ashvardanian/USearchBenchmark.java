@@ -91,10 +91,12 @@ public class USearchBenchmark {
     public static class SearchMetrics {
         public final Map<Integer, Double> recallAtK;
         public final Map<Integer, Double> ndcgAtK;
+        public final long searchTimeMs;
 
-        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK) {
+        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long searchTimeMs) {
             this.recallAtK = recallAtK;
             this.ndcgAtK = ndcgAtK;
+            this.searchTimeMs = searchTimeMs;
         }
     }
 
@@ -271,17 +273,19 @@ public class USearchBenchmark {
 
             long indexingTime = System.currentTimeMillis() - startIndexing;
             long memoryAfter = getMemoryUsage();
-            long memoryUsage = memoryAfter - memoryBefore;
+            // Use Math.max to prevent negative memory usage due to GC
+            long memoryUsage = Math.max(0, memoryAfter - memoryBefore);
 
-            // Measure search time and calculate recall + NDCG
-            long startSearch = System.currentTimeMillis();
+            // Calculate search metrics (includes both search and accuracy calculation)
             System.out.print("🔍 Searching... ");
             SearchMetrics metrics = calculateSearchMetrics(index, queryVectors, numQueries, config.getKValues(),
                     useByteData);
-            long searchTime = System.currentTimeMillis() - startSearch;
             System.out.println("✅ Done");
+            
+            // Use the actual search time from metrics (excludes accuracy calculation)
+            long searchTime = metrics.searchTimeMs;
 
-            // Calculate throughput
+            // Calculate throughput based on actual search time
             double throughputQPS = numQueries / (searchTime / 1000.0);
 
             return new BenchmarkResult(
@@ -426,7 +430,7 @@ public class USearchBenchmark {
             ndcgResults.put(k, totalNdcg / numQueries);
         }
 
-        return new SearchMetrics(recallResults, ndcgResults);
+        return new SearchMetrics(recallResults, ndcgResults, searchTime);
     }
 
     private Index createIndex(String metric, String quantization, int dimensions,

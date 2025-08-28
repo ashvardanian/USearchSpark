@@ -33,10 +33,12 @@ public class LuceneBenchmark {
     public static class SearchMetrics {
         public final Map<Integer, Double> recallAtK;
         public final Map<Integer, Double> ndcgAtK;
+        public final long searchTimeMs;
 
-        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK) {
+        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long searchTimeMs) {
             this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
             this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
+            this.searchTimeMs = searchTimeMs;
         }
     }
 
@@ -194,20 +196,22 @@ public class LuceneBenchmark {
 
         long indexingTime = System.currentTimeMillis() - startIndexing;
         long memoryAfter = getMemoryUsage();
-        long memoryUsage = memoryAfter - memoryBefore;
+        // Use Math.max to prevent negative memory usage due to GC
+        long memoryUsage = Math.max(0, memoryAfter - memoryBefore);
 
         // Create index reader and searcher
         DirectoryReader indexReader = DirectoryReader.open(directory);
         IndexSearcher indexSearcher = new IndexSearcher(indexReader);
 
-        // Measure search time and calculate recall & NDCG
-        long startSearch = System.currentTimeMillis();
+        // Calculate search metrics (includes both search and accuracy calculation)
         System.out.println("🔍 Searching...");
         SearchMetrics searchMetrics = calculateSearchMetrics(indexSearcher, queryVectors, numQueries,
                 config.getKValues());
-        long searchTime = System.currentTimeMillis() - startSearch;
 
-        // Calculate throughput
+        // Use the actual search time from metrics (excludes accuracy calculation)
+        long searchTime = searchMetrics.searchTimeMs;
+
+        // Calculate throughput based on actual search time
         double throughputQPS = numQueries / (searchTime / 1000.0);
 
         // Cleanup
@@ -357,7 +361,7 @@ public class LuceneBenchmark {
             throw new RuntimeException("Accuracy calculation failed", e);
         }
 
-        return new SearchMetrics(recallResults, ndcgResults);
+        return new SearchMetrics(recallResults, ndcgResults, searchTime);
     }
 
     private long getMemoryUsage() {
