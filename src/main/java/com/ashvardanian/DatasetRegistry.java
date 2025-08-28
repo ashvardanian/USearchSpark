@@ -301,7 +301,9 @@ public class DatasetRegistry {
 
         // Handle S3 URLs specially
         if (url.startsWith("s3://")) {
-            throw new IOException("S3 datasets require manual download. Please run: aws s3 cp " + url + " " + localPath);
+            throw new IOException("S3 datasets require manual download.\n" +
+                "Please run: aws s3 cp " + url + " " + localPath + "\n" +
+                "Or use AWS CLI: aws configure && aws s3 sync s3://bigger-ann/spacev-1b/ datasets/");
         }
 
         logger.info("Downloading: {} -> {}", url, localPath);
@@ -309,7 +311,12 @@ public class DatasetRegistry {
         try (InputStream in = new URI(url).toURL().openStream()) {
             Files.copy(in, path, StandardCopyOption.REPLACE_EXISTING);
         } catch (Exception e) {
-            throw new IOException("Failed to download from " + url, e);
+            String errorMsg = "Failed to download from " + url + "\n" +
+                "Possible causes:\n" +
+                "  1. Network timeout - try again\n" +
+                "  2. Large file - manually download: wget " + url + " -O " + localPath + "\n" +
+                "  3. Access denied - check if dataset URL is still valid";
+            throw new IOException(errorMsg, e);
         }
 
         logger.info("Download completed: {}", localPath);

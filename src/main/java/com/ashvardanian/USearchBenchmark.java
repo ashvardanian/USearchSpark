@@ -147,7 +147,8 @@ public class USearchBenchmark {
         } else if ("cos".equals(metric)) {
             usearchMetric = Index.Metric.COSINE;
         } else {
-            usearchMetric = Index.Metric.EUCLIDEAN_SQUARED; // Default
+            throw new IllegalArgumentException("Unsupported metric: " + metric + 
+                ". Supported metrics are: l2, ip, cos");
         }
 
         // Set precision-specific quantization
@@ -348,9 +349,14 @@ public class USearchBenchmark {
                     .expansion_search(config.getEfSearch())
                     .build();
         } catch (Error e) {
-            throw new Exception(String.format("Failed to create USearch index for %,d vectors. " +
-                    "Try reducing the number of vectors with --max-vectors parameter. Error: %s",
-                    numVectors, e.getMessage()), e);
+            String errorMsg = String.format("Failed to create USearch index for %,d vectors.\n" +
+                    "Suggestions:\n" +
+                    "  1. Reduce vectors: gradle run --args=\"%s --max-vectors 100000\"\n" +
+                    "  2. Increase heap: Add -Xmx16g to JAVA_OPTS\n" +
+                    "  3. Use INT8 precision for lower memory usage\n" +
+                    "Error: %s",
+                    numVectors, System.getProperty("dataset.name", "dataset"), e.getMessage());
+            throw new Exception(errorMsg, e);
         }
     }
 

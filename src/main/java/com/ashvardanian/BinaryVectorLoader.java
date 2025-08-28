@@ -170,7 +170,7 @@ public class BinaryVectorLoader {
         Path path = Paths.get(filePath);
         VectorType type = VectorType.fromPath(filePath);
         
-        logger.info("Loading vector file: {} (type: {})", filePath, type);
+        logger.debug("Loading vector file: {} (type: {})", filePath, type);
         
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             // Read header (8 bytes: rows and columns as 32-bit integers)
@@ -181,7 +181,7 @@ public class BinaryVectorLoader {
             int totalRows = header.getInt();
             int cols = header.getInt();
             
-            logger.info("Dataset dimensions: {} x {} ({})", totalRows, cols, type);
+            logger.debug("Dataset dimensions: {} x {} ({})", totalRows, cols, type);
             
             int actualRows = maxRows > 0 ? Math.min(maxRows, totalRows - startRow) : totalRows - startRow;
             if (startRow >= totalRows) {
@@ -199,7 +199,7 @@ public class BinaryVectorLoader {
             channel.read(data);
             data.flip();
             
-            logger.info("Loaded {} vectors starting from row {}", actualRows, startRow);
+            logger.debug("Loaded {} vectors starting from row {}", actualRows, startRow);
             return new VectorDataset(actualRows, cols, type, data);
         }
     }
@@ -349,7 +349,7 @@ public class BinaryVectorLoader {
         Path path = Paths.get(filePath);
         VectorType type = VectorType.fromPath(filePath);
 
-        logger.info("Loading ground truth file: {} (type: {})", filePath, type);
+        logger.debug("Loading ground truth file: {} (type: {})", filePath, type);
 
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             ByteBuffer header = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
@@ -359,7 +359,7 @@ public class BinaryVectorLoader {
             int numQueries = header.getInt();
             int k = header.getInt();
 
-            logger.info("Ground truth dimensions: {} queries x {} neighbors ({})", numQueries, k, type);
+            logger.debug("Ground truth dimensions: {} queries x {} neighbors ({})", numQueries, k, type);
 
             long dataSize = (long) numQueries * k * type.getByteSize();
             ByteBuffer data = ByteBuffer.allocate((int) dataSize).order(ByteOrder.LITTLE_ENDIAN);
@@ -374,11 +374,11 @@ public class BinaryVectorLoader {
         Path path = Paths.get(filePath);
         VectorType type = VectorType.fromPath(filePath);
 
-        if (type != VectorType.INT32) {
-            throw new IllegalArgumentException("Vector IDs must be INT32 format, got: " + type);
+        if (type != VectorType.INT32 && type != VectorType.INT32_BIN) {
+            throw new IllegalArgumentException("Vector IDs must be INT32 or INT32_BIN format, got: " + type);
         }
 
-        logger.info("Loading vector IDs file: {}", filePath);
+        logger.debug("Loading vector IDs file: {}", filePath);
 
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             ByteBuffer header = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);

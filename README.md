@@ -6,6 +6,7 @@ Vector Search benchmark comparing [USearch](https://github.com/unum-cloud/usearc
 
 ```bash
 gradle build --warning-mode all # ensure all dependencies are resolved
+gradle run --args="-h" # print supported arguments & available options
 gradle run --args="unum-wiki-1m" # index & search `f32` vectors across all cores
 gradle run --args="yandex-deep-10m --max-vectors 100000" # limit vectors for testing
 gradle run --args="msft-spacev-100m --precision f32,i8" # test specific precisions
