@@ -26,6 +26,7 @@ application {
         '--add-opens=java.base/sun.security.action=ALL-UNNAMED',
         '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
         '--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED',
+        '--add-modules=jdk.incubator.vector',  // Enable Vector API for Lucene performance
         '-Djava.library.path=/tmp'
     ]
 }
