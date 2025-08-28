@@ -29,15 +29,18 @@ public class DatasetRegistry {
         private final String metric;
         private final String format;
         private final long sizeBytes;
+        private final int groundTruthNeighbors;
 
         public DatasetDefinition(String name, String description, String baseUrl, String queryUrl,
-                String groundTruthUrl, int dimensions, String metric, String format, long sizeBytes) {
-            this(name, description, baseUrl, queryUrl, groundTruthUrl, null, dimensions, metric, format, sizeBytes);
+                String groundTruthUrl, int dimensions, String metric, String format, long sizeBytes,
+                int groundTruthNeighbors) {
+            this(name, description, baseUrl, queryUrl, groundTruthUrl, null, dimensions, metric, format, sizeBytes,
+                    groundTruthNeighbors);
         }
 
         public DatasetDefinition(String name, String description, String baseUrl, String queryUrl,
                 String groundTruthUrl, String vectorIdsUrl, int dimensions, String metric, String format,
-                long sizeBytes) {
+                long sizeBytes, int groundTruthNeighbors) {
             this.name = name;
             this.description = description;
             this.baseUrl = baseUrl;
@@ -48,6 +51,7 @@ public class DatasetRegistry {
             this.metric = metric;
             this.format = format;
             this.sizeBytes = sizeBytes;
+            this.groundTruthNeighbors = groundTruthNeighbors;
         }
 
         // Getters
@@ -89,6 +93,10 @@ public class DatasetRegistry {
 
         public long getSizeBytes() {
             return sizeBytes;
+        }
+
+        public int getGroundTruthNeighbors() {
+            return groundTruthNeighbors;
         }
     }
 
@@ -159,7 +167,7 @@ public class DatasetRegistry {
                 "https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/base.1M.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/query.public.100K.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/groundtruth.public.100K.ibin",
-                256, "ip", "fbin", 1_000_000_000L));
+                256, "ip", "fbin", 1_000_000_000L, 10));
 
         DATASETS.put("unum-cc-3m", new DatasetDefinition(
                 "unum-cc-3m",
@@ -167,7 +175,7 @@ public class DatasetRegistry {
                 "https://huggingface.co/datasets/unum-cloud/ann-cc-3m/resolve/main/base.3M.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-cc-3m/resolve/main/query.public.100K.fbin",
                 "https://huggingface.co/datasets/unum-cloud/ann-cc-3m/resolve/main/groundtruth.public.100K.ibin",
-                256, "ip", "fbin", 3_000_000_000L));
+                256, "ip", "fbin", 3_000_000_000L, 100));
 
         DATASETS.put("yandex-t2i-1m", new DatasetDefinition(
                 "yandex-t2i-1m",
@@ -175,7 +183,7 @@ public class DatasetRegistry {
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1M.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/query.public.100K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/groundtruth.public.100K.ibin",
-                200, "cos", "fbin", 1_000_000_000L));
+                200, "cos", "fbin", 1_000_000_000L, 100));
 
         DATASETS.put("yandex-deep-10m", new DatasetDefinition(
                 "yandex-deep-10m",
@@ -183,7 +191,7 @@ public class DatasetRegistry {
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.10M.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin",
-                96, "l2", "fbin", 4_000_000_000L));
+                96, "l2", "fbin", 4_000_000_000L, 100));
 
         DATASETS.put("msft-spacev-100m", new DatasetDefinition(
                 "msft-spacev-100m",
@@ -192,7 +200,7 @@ public class DatasetRegistry {
                 "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/query.30K.i8bin",
                 "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/groundtruth.30K.i32bin",
                 "https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/ids.100M.i32bin",
-                100, "l2", "i8bin", 9_300_000_000L));
+                100, "l2", "i8bin", 9_300_000_000L, 100));
 
         // Large-scale datasets (> 90GB) - billion-scale
         DATASETS.put("msft-spacev-1b", new DatasetDefinition(
@@ -202,7 +210,7 @@ public class DatasetRegistry {
                 "s3://bigger-ann/spacev-1b/query.30K.i8bin",
                 "s3://bigger-ann/spacev-1b/groundtruth.30K.i32bin",
                 null, // No separate ID file for full 1B dataset
-                100, "l2", "i8bin", 131_000_000_000L));
+                100, "l2", "i8bin", 131_000_000_000L, 100));
 
         DATASETS.put("msft-turing-1b", new DatasetDefinition(
                 "msft-turing-1b",
@@ -210,7 +218,7 @@ public class DatasetRegistry {
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/TURING/base.1B.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/TURING/query.100K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/TURING/groundtruth.100K.ibin",
-                100, "l2", "fbin", 373_000_000_000L));
+                100, "l2", "fbin", 373_000_000_000L, 100));
 
         DATASETS.put("yandex-deep-1b", new DatasetDefinition(
                 "yandex-deep-1b",
@@ -218,7 +226,7 @@ public class DatasetRegistry {
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.1B.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin",
-                96, "l2", "fbin", 358_000_000_000L));
+                96, "l2", "fbin", 358_000_000_000L, 100));
 
         DATASETS.put("yandex-t2i-1b", new DatasetDefinition(
                 "yandex-t2i-1b",
@@ -226,7 +234,7 @@ public class DatasetRegistry {
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1B.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/query.public.100K.fbin",
                 "https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/groundtruth.public.100K.ibin",
-                200, "cos", "fbin", 750_000_000_000L));
+                200, "cos", "fbin", 750_000_000_000L, 100));
     }
 
     public static Set<String> getAvailableDatasets() {
@@ -336,12 +344,13 @@ public class DatasetRegistry {
     public static void printDatasetInfo() {
         logger.info("Available datasets:");
         for (DatasetDefinition def : DATASETS.values()) {
-            logger.info("  {} - {} ({} dimensions, {} metric, {} GB)",
+            logger.info("  {} - {} ({} dimensions, {} metric, {} GB, {} neighbors/query)",
                     def.getName(),
                     def.getDescription(),
                     def.getDimensions(),
                     def.getMetric(),
-                    def.getSizeBytes() / 1_000_000_000.0);
+                    def.getSizeBytes() / 1_000_000_000.0,
+                    def.getGroundTruthNeighbors());
         }
     }
 

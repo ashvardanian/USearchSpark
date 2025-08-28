@@ -76,6 +76,10 @@ public class LuceneBenchmark {
             return throughputQPS;
         }
 
+        public double getThroughputIPS() {
+            return indexingTimeMs > 0 ? numVectors / (indexingTimeMs / 1000.0) : 0.0;
+        }
+
         public Map<Integer, Double> getRecallAtK() {
             return recallAtK;
         }
@@ -366,15 +370,16 @@ public class LuceneBenchmark {
         System.out.println("Precision: F32 (baseline)");
         System.out.println(String.format("  Indexing Time: %,d ms", result.getIndexingTimeMs()));
         System.out.println(String.format("  Search Time: %,d ms", result.getSearchTimeMs()));
-        System.out.println(String.format("  Throughput: %,.0f QPS", result.getThroughputQPS()));
+        System.out.println(String.format("  Indexing Throughput: %,.0f IPS", result.getThroughputIPS()));
+        System.out.println(String.format("  Search Throughput: %,.0f QPS", result.getThroughputQPS()));
         System.out.println(
                 String.format("  Memory Usage: %,d MB", Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 
         for (Map.Entry<Integer, Double> entry : result.getRecallAtK().entrySet()) {
             int k = entry.getKey();
-            double recall = entry.getValue();
-            double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0);
-            System.out.println(String.format("  Recall@%d: %.4f, NDCG@%d: %.4f", k, recall, k, ndcg));
+            double recall = entry.getValue() * 100.0; // Convert to percentage
+            double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0) * 100.0; // Convert to percentage
+            System.out.println(String.format("  Recall@%d: %.2f%%, NDCG@%d: %.2f%%", k, recall, k, ndcg));
         }
 
         System.out.println();

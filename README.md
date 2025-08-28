@@ -20,38 +20,60 @@ export JAVA_OPTS="-Xmx512g -Xms64g -XX:G1HeapRegionSize=64m"
 gradle run --args="msft-spacev-1b"
 ```
 
-Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing clean output like:
+Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing clean output like, the following results obtained for the 100M `msft-spacev-100m` subset of Microsoft SpaceV on AWS `m7i.metal-48xl` instances with 92 cores and 192 threads across 2 sockets.
 
 ```
-Implementation | Precision | Index (ms) | Search (ms) | QPS    | Recall@1 | Recall@10
-Lucene         | F32       | 1,250      | 890         | 11,235 | 0.9850   | 0.9950
-USearch        | F32       | 980        | 720         | 13,888 | 0.9840   | 0.9945
-USearch        | F16       | 1,100      | 650         | 15,384 | 0.9820   | 0.9940
-USearch        | BF16      | 1,050      | 680         | 14,705 | 0.9830   | 0.9942
-USearch        | I8        | 900        | 480         | 20,833 | 0.9750   | 0.9890
+🚀 PERFORMANCE METRICS
+┌──────────────┬──────────────┬──────────────┬──────────────┬─────────────┐
+│ Engine       │ Precision    │ IPS          │ QPS          │ Memory      │
+├──────────────┼──────────────┼──────────────┼──────────────┼─────────────┤
+│ Apache       │ F32          │ 74,555       │ 383          │ 65 MB       │
+│ USearch      │ F32          │ 69,046       │ 6,983        │ -47 MB      │
+│ USearch      │ F16          │ 67,159       │ 7,831        │ 0 MB        │
+│ USearch      │ BF16         │ 65,569       │ 7,491        │ 1 MB        │
+│ USearch      │ I8           │ 100,472      │ 11,723       │ 0 MB        │
+└──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
+🎯 RECALL & NDCG METRICS
+┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+│ Engine      │ Precision   │ Recall@10   │ NDCG@10     │ Recall@100  │ NDCG@100    │
+├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
+│ Apache      │ F32         │ 0.0990      │ 0.1876      │ 0.1004      │ 0.1876      │
+│ USearch     │ F32         │ 0.0991      │ 0.1877      │ 0.1007      │ 0.1877      │
+│ USearch     │ F16         │ 0.0991      │ 0.1876      │ 0.1007      │ 0.1876      │
+│ USearch     │ BF16        │ 0.0993      │ 0.1861      │ 0.1009      │ 0.1861      │
+│ USearch     │ I8          │ 0.0974      │ 0.1676      │ 0.1005      │ 0.1676      │
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
+🏆 WINNER: USearch I8 - Best QPS (11,723) with 9.74% recall@10
+💡 IPS = Insertions Per Second (indexing), QPS = Queries Per Second (search)
 ```
+
+Recall@K is computed as a fraction of search queries, where the known "ground-truth" Top-1 result appeared among the Top-K approximate results.
+NDCG@K stands for Normalized [Discounted Cumulative Gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain) at K, which measures the effectiveness of the search results by considering the position of the relevant documents.
 
 ## Datasets
 
 BigANN benchmark is a good starting point, if you are searching for large collections of high-dimensional vectors.
-Those often come with precomputed ground-truth neighbors, which is handy for recall evaluation.
+Still, it rarely considers datasets with more than tens of millions of entries.
+In the age of 100+ core CPUs and Petabyte-scale storage in 2U servers, bigger datasets are needed.
 
-| Dataset                                     | Scalar Type | Dimensions | Metric |   Size    | Codename           |
-| :------------------------------------------ | :---------: | :--------: | :----: | :-------: | :----------------- |
-| [Unum UForm Creative Captions][unum-cc-3m]  |    `f32`    |    256     |   IP   |   3 GB    | `unum-cc-3m`       |
-| [Unum UForm Wiki][unum-wiki-1m]             |    `f32`    |    256     |   IP   |   1 GB    | `unum-wiki-1m`     |
-| [Yandex Text-to-Image][yandex-t2i] subset   |    `f32`    |    200     |  Cos   |   1 GB    | `yandex-t2i-1m`    |
-| [Yandex Deep10M][yandex-deep] subset        |    `f32`    |     96     |   L2   |  358 GB   | `yandex-deep-10m`  |
-| [Microsoft SpaceV-100M][msft-spacev] subset |    `i8`     |    100     |   L2   |  9.3 GB   | `msft-spacev-100m` |
-|                                             |             |            |        |           |                    |
-| [Microsoft SpaceV-1B][msft-spacev]          |    `i8`     |    100     |   L2   |   93 GB   | `msft-spacev-1b`   |
-| [Microsoft Turing-ANNS][msft-turing]        |    `f32`    |    100     |   L2   |  373 GB   | `msft-turing-1b`   |
-| [Yandex Deep1B][yandex-deep]                |    `f32`    |     96     |   L2   |  358 GB   | `yandex-deep-1b`   |
-| [Yandex Text-to-Image][t2i]                 |    `f32`    |    200     |  Cos   |  750 GB   | `yandex-t2i-1b`    |
-|                                             |             |            |        |           |                    |
-| [ViT-L/12 LAION][laion]                     |    `f32`    |    2048    |  Cos   | 2 - 10 TB | `laion-5b`         |
+| Dataset                                     | Codename           | DType | NDim | Metric |   Size |  $N$ |
+| :------------------------------------------ | :----------------- | ----: | ---: | -----: | -----: | ---: |
+| [Unum UForm Creative Captions][unum-cc-3m]  | `unum-cc-3m`       | `f32` |  256 |     IP |   3 GB |  100 |
+| [Unum UForm Wiki][unum-wiki-1m]             | `unum-wiki-1m`     | `f32` |  256 |     IP |   1 GB |   10 |
+| [Yandex Text-to-Image][yandex-t2i] subset   | `yandex-t2i-1m`    | `f32` |  200 |    Cos |   1 GB |  100 |
+| [Yandex Deep10M][yandex-deep] subset        | `yandex-deep-10m`  | `f32` |   96 |     L2 |   4 GB |  100 |
+| [Microsoft SpaceV-100M][msft-spacev] subset | `msft-spacev-100m` |  `i8` |  100 |     L2 |   9 GB |  100 |
+|                                             |                    |       |      |        |        |      |
+| [Microsoft SpaceV-1B][msft-spacev]          | `msft-spacev-1b`   |  `i8` |  100 |     L2 | 131 GB |  100 |
+| [Microsoft Turing-ANNS][msft-turing]        | `msft-turing-1b`   | `f32` |  100 |     L2 | 373 GB |  100 |
+| [Yandex Deep1B][yandex-deep]                | `yandex-deep-1b`   | `f32` |   96 |     L2 | 358 GB |  100 |
+| [Yandex Text-to-Image][yandex-t2i]          | `yandex-t2i-1b`    | `f32` |  200 |    Cos | 750 GB |  100 |
+|                                             |                    |       |      |        |        |      |
+| [ViT-L/12 LAION][laion]                     | `laion-5b`         | `f32` | 2048 |    Cos |  10 TB |    - |
 
-Luckily, smaller samples of those datasets are available.
+Those often come with $N$ precomputed ground-truth neighbors, which is handy for recall evaluation.
+The ground-truth neighbors are computed with respect to some "metric", such as Inner Product (IP), Cosine similarity (Cos) or Euclidean distance (L2).
+They are generally distributed in a form of binary matrix files, packing either `f32` or `i8` scalars, for high compatibility, as opposed to less common `f16` and `bf16`.
 
 [unum-cc-3m]: https://huggingface.co/datasets/unum-cloud/ann-cc-3m
 [unum-wiki-1m]: https://huggingface.co/datasets/unum-cloud/ann-wiki-1m

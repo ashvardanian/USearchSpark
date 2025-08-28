@@ -71,20 +71,20 @@ public class BenchmarkResultsTable {
 
         // Lucene first
         metricsTable.addRow("Apache", "F32",
-                String.format("%.4f", luceneResult.getRecallAtK().get(10)),
-                String.format("%.4f", luceneResult.getNDCGAtK().getOrDefault(10, 0.0)),
-                String.format("%.4f", luceneResult.getRecallAtK().getOrDefault(100, 0.0)),
-                String.format("%.4f", luceneResult.getNDCGAtK().getOrDefault(100, 0.0)));
+                String.format("%.2f%%", luceneResult.getRecallAtK().get(10) * 100.0),
+                String.format("%.2f%%", luceneResult.getNDCGAtK().getOrDefault(10, 0.0) * 100.0),
+                String.format("%.2f%%", luceneResult.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
+                String.format("%.2f%%", luceneResult.getNDCGAtK().getOrDefault(100, 0.0) * 100.0));
 
         // USearch results
         for (BenchmarkConfig.Precision precision : precisions) {
             USearchBenchmark.BenchmarkResult result = usearchResults.get(precision);
             if (result != null) {
                 metricsTable.addRow("USearch", precision.getName().toUpperCase(),
-                        String.format("%.4f", result.getRecallAtK().get(10)),
-                        String.format("%.4f", result.getNDCGAtK().getOrDefault(10, 0.0)),
-                        String.format("%.4f", result.getRecallAtK().getOrDefault(100, 0.0)),
-                        String.format("%.4f", result.getNDCGAtK().getOrDefault(100, 0.0)));
+                        String.format("%.2f%%", result.getRecallAtK().get(10) * 100.0),
+                        String.format("%.2f%%", result.getNDCGAtK().getOrDefault(10, 0.0) * 100.0),
+                        String.format("%.2f%%", result.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
+                        String.format("%.2f%%", result.getNDCGAtK().getOrDefault(100, 0.0) * 100.0));
             }
         }
 

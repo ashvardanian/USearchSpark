@@ -7,6 +7,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ForkJoinPool;
+import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +61,10 @@ public class USearchBenchmark {
 
         public double getThroughputQPS() {
             return throughputQPS;
+        }
+
+        public double getThroughputIPS() {
+            return indexingTimeMs > 0 ? numVectors / (indexingTimeMs / 1000.0) : 0.0;
         }
 
         public Map<Integer, Double> getRecallAtK() {
@@ -218,26 +224,52 @@ public class USearchBenchmark {
             long startIndexing = System.currentTimeMillis();
             long memoryBefore = getMemoryUsage();
 
-            // Direct indexing without artificial batching - using reusable buffers
+            // Determine optimal thread count (cap at reasonable number for JNI overhead)
+            int numThreads = Math.min(ForkJoinPool.commonPool().getParallelism(), Math.max(1, numBaseVectors / 1000));
+            System.out.println("🧵 Using " + numThreads + " threads for indexing (" +
+                    ForkJoinPool.commonPool().getParallelism() + " available)");
+
+            // Parallel indexing using ForkJoinPool
             ProgressLogger indexProgress = new ProgressLogger("Indexing " + precision.getName(), numBaseVectors);
 
-            // Pre-allocate reusable buffers to avoid repeated allocations
-            float[] floatBuffer = useByteData ? null : new float[baseVectors.getCols()];
-            byte[] byteBuffer = useByteData ? new byte[baseVectors.getCols()] : null;
+            if (numThreads == 1) {
+                // Single-threaded fallback - reuse buffer
+                float[] floatBuffer = useByteData ? null : new float[baseVectors.getCols()];
+                byte[] byteBuffer = useByteData ? new byte[baseVectors.getCols()] : null;
 
-            for (int i = 0; i < numBaseVectors; i++) {
-                if (useByteData) {
-                    // I8 precision: use byte vectors directly from dataset
-                    baseVectors.getVectorAsByte(i, byteBuffer);
-                    index.add(i, byteBuffer);
-                } else {
-                    // F32/F16/BF16: use float vectors directly from dataset
-                    baseVectors.getVectorAsFloat(i, floatBuffer);
-                    index.add(i, floatBuffer);
+                for (int i = 0; i < numBaseVectors; i++) {
+                    if (useByteData) {
+                        baseVectors.getVectorAsByte(i, byteBuffer);
+                        index.add(i, byteBuffer);
+                    } else {
+                        baseVectors.getVectorAsFloat(i, floatBuffer);
+                        index.add(i, floatBuffer);
+                    }
+                    indexProgress.update(i + 1);
                 }
-
-                indexProgress.update(i + 1);
+            } else {
+                // Multi-threaded indexing - each thread allocates its own buffer
+                // JNI Performance Note: Each index.add() triggers JNI call with array copying
+                // Parallel processing distributes ~25% array copy overhead across threads
+                // See JNI_PERFORMANCE_ANALYSIS.md for detailed bottleneck analysis
+                IntStream.range(0, numBaseVectors).parallel().forEach(i -> {
+                    try {
+                        if (useByteData) {
+                            byte[] byteBuffer = new byte[baseVectors.getCols()];
+                            baseVectors.getVectorAsByte(i, byteBuffer);
+                            index.add(i, byteBuffer); // JNI: GetByteArrayElements + ReleaseByteArrayElements
+                        } else {
+                            float[] floatBuffer = new float[baseVectors.getCols()];
+                            baseVectors.getVectorAsFloat(i, floatBuffer);
+                            index.add(i, floatBuffer); // JNI: GetFloatArrayElements + ReleaseFloatArrayElements
+                        }
+                        indexProgress.update(i + 1);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Parallel indexing failed at vector " + i, e);
+                    }
+                });
             }
+
             indexProgress.complete(numBaseVectors);
 
             long indexingTime = System.currentTimeMillis() - startIndexing;
@@ -301,24 +333,50 @@ public class USearchBenchmark {
         // Find maximum K value for single search optimization
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // Pre-allocate reusable query buffers to avoid repeated allocations
-        float[] queryFloatBuffer = useByteData ? null : new float[queryVectors.getCols()];
-        byte[] queryByteBuffer = useByteData ? new byte[queryVectors.getCols()] : null;
+        // Determine optimal thread count for search (smaller than indexing due to query
+        // overhead)
+        int searchThreads = Math.min(ForkJoinPool.commonPool().getParallelism() / 2, Math.max(1, numQueries / 500));
+        System.out.println("🔍 Using " + searchThreads + " threads for search");
 
         // SINGLE SEARCH with maximum K - no accuracy calculations during timing
         ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
         long startSearch = System.currentTimeMillis();
-        for (int i = 0; i < numQueries; i++) {
-            if (useByteData) {
-                queryVectors.getVectorAsByte(i, queryByteBuffer);
-                allSearchResults[i] = index.search(queryByteBuffer, maxK);
-            } else {
-                queryVectors.getVectorAsFloat(i, queryFloatBuffer);
-                allSearchResults[i] = index.search(queryFloatBuffer, maxK);
-            }
 
-            searchProgress.update(i + 1);
+        if (searchThreads == 1) {
+            // Single-threaded fallback - reuse buffers
+            float[] queryFloatBuffer = useByteData ? null : new float[queryVectors.getCols()];
+            byte[] queryByteBuffer = useByteData ? new byte[queryVectors.getCols()] : null;
+
+            for (int i = 0; i < numQueries; i++) {
+                if (useByteData) {
+                    queryVectors.getVectorAsByte(i, queryByteBuffer);
+                    allSearchResults[i] = index.search(queryByteBuffer, maxK);
+                } else {
+                    queryVectors.getVectorAsFloat(i, queryFloatBuffer);
+                    allSearchResults[i] = index.search(queryFloatBuffer, maxK);
+                }
+                searchProgress.update(i + 1);
+            }
+        } else {
+            // Multi-threaded search - each thread allocates its own buffer
+            IntStream.range(0, numQueries).parallel().forEach(i -> {
+                try {
+                    if (useByteData) {
+                        byte[] queryByteBuffer = new byte[queryVectors.getCols()];
+                        queryVectors.getVectorAsByte(i, queryByteBuffer);
+                        allSearchResults[i] = index.search(queryByteBuffer, maxK);
+                    } else {
+                        float[] queryFloatBuffer = new float[queryVectors.getCols()];
+                        queryVectors.getVectorAsFloat(i, queryFloatBuffer);
+                        allSearchResults[i] = index.search(queryFloatBuffer, maxK);
+                    }
+                    searchProgress.update(i + 1);
+                } catch (Exception e) {
+                    throw new RuntimeException("Parallel search failed at query " + i, e);
+                }
+            });
         }
+
         long searchTime = System.currentTimeMillis() - startSearch;
         searchProgress.complete(numQueries);
 
@@ -425,15 +483,16 @@ public class USearchBenchmark {
             System.out.println("Precision: " + precision.getName());
             System.out.println(String.format("  Indexing Time: %,d ms", result.getIndexingTimeMs()));
             System.out.println(String.format("  Search Time: %,d ms", result.getSearchTimeMs()));
-            System.out.println(String.format("  Throughput: %,.0f QPS", result.getThroughputQPS()));
+            System.out.println(String.format("  Indexing Throughput: %,.0f IPS", result.getThroughputIPS()));
+            System.out.println(String.format("  Search Throughput: %,.0f QPS", result.getThroughputQPS()));
             System.out.println(String.format("  Memory Usage: %,d MB",
                     Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 
             for (Map.Entry<Integer, Double> entry : result.getRecallAtK().entrySet()) {
                 int k = entry.getKey();
-                double recall = entry.getValue();
-                double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0);
-                System.out.println(String.format("  Recall@%d: %.4f, NDCG@%d: %.4f", k, recall, k, ndcg));
+                double recall = entry.getValue() * 100.0; // Convert to percentage
+                double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0) * 100.0; // Convert to percentage
+                System.out.println(String.format("  Recall@%d: %.2f%%, NDCG@%d: %.2f%%", k, recall, k, ndcg));
             }
 
             System.out.println();
