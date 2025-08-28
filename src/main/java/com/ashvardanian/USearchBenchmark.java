@@ -1,6 +1,7 @@
 package com.ashvardanian;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -217,26 +218,27 @@ public class USearchBenchmark {
             long startIndexing = System.currentTimeMillis();
             long memoryBefore = getMemoryUsage();
 
-            // Create batches for indexing
-            List<VectorProcessor.VectorBatch> indexingBatches = VectorProcessor.createBatches(baseVectors,
-                    numBaseVectors, useByteData, 1024);
+            // Direct indexing without artificial batching - using reusable buffers
+            ProgressLogger indexProgress = new ProgressLogger("Indexing " + precision.getName(), numBaseVectors);
 
-            // batch indexing
-            VectorProcessor.processBatches(indexingBatches, batch -> {
-                if (batch.isByteData) {
-                    // Add vectors individually with byte[] for I8
-                    for (int i = 0; i < batch.vectorCount; i++) {
-                        byte[] vector = new byte[batch.dimensions];
-                        System.arraycopy(batch.byteVectors, i * batch.dimensions, vector, 0, batch.dimensions);
-                        index.add(batch.keys[i], vector);
-                    }
+            // Pre-allocate reusable buffers to avoid repeated allocations
+            float[] floatBuffer = useByteData ? null : new float[baseVectors.getCols()];
+            byte[] byteBuffer = useByteData ? new byte[baseVectors.getCols()] : null;
+
+            for (int i = 0; i < numBaseVectors; i++) {
+                if (useByteData) {
+                    // I8 precision: use byte vectors directly from dataset
+                    baseVectors.getVectorAsByte(i, byteBuffer);
+                    index.add(i, byteBuffer);
                 } else {
-                    // For F32/F16/BF16: Use batch add with concatenated vectors
-                    // USearch auto-detects batch operations when array length > dimensions
-                    index.add(batch.keys[0], batch.vectors); // Starts from first key, auto-increments
+                    // F32/F16/BF16: use float vectors directly from dataset
+                    baseVectors.getVectorAsFloat(i, floatBuffer);
+                    index.add(i, floatBuffer);
                 }
-                return null;
-            }, "Indexing " + precision.getName());
+
+                indexProgress.update(i + 1);
+            }
+            indexProgress.complete(numBaseVectors);
 
             long indexingTime = System.currentTimeMillis() - startIndexing;
             long memoryAfter = getMemoryUsage();
@@ -268,8 +270,6 @@ public class USearchBenchmark {
 
     private SearchMetrics calculateSearchMetrics(Index index, BinaryVectorLoader.VectorDataset queryVectors,
             int numQueries, int[] kValues, boolean useByteData) throws Exception {
-        Map<Integer, Double> recallResults = new HashMap<>();
-        Map<Integer, Double> ndcgResults = new HashMap<>();
 
         // Try to load ground truth if available
         BinaryVectorLoader.GroundTruth groundTruth = null;
@@ -295,72 +295,78 @@ public class USearchBenchmark {
             logger.warn("Could not load vector IDs: {}", e.getMessage());
         }
 
-        // Create batches for query vectors
-        List<VectorProcessor.VectorBatch> queryBatches = VectorProcessor.createBatches(queryVectors, numQueries,
-                useByteData, 1024);
+        // Pre-allocate result arrays to avoid allocation overhead during timing
+        long[][] allSearchResults = new long[numQueries][];
 
-        final BinaryVectorLoader.GroundTruth finalGroundTruth = groundTruth;
-        final BinaryVectorLoader.VectorIds finalVectorIds = vectorIds;
+        // Find maximum K value for single search optimization
+        int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // For each k value, run concurrent searches
+        // Pre-allocate reusable query buffers to avoid repeated allocations
+        float[] queryFloatBuffer = useByteData ? null : new float[queryVectors.getCols()];
+        byte[] queryByteBuffer = useByteData ? new byte[queryVectors.getCols()] : null;
+
+        // SINGLE SEARCH with maximum K - no accuracy calculations during timing
+        ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
+        long startSearch = System.currentTimeMillis();
+        for (int i = 0; i < numQueries; i++) {
+            if (useByteData) {
+                queryVectors.getVectorAsByte(i, queryByteBuffer);
+                allSearchResults[i] = index.search(queryByteBuffer, maxK);
+            } else {
+                queryVectors.getVectorAsFloat(i, queryFloatBuffer);
+                allSearchResults[i] = index.search(queryFloatBuffer, maxK);
+            }
+
+            searchProgress.update(i + 1);
+        }
+        long searchTime = System.currentTimeMillis() - startSearch;
+        searchProgress.complete(numQueries);
+
+        // ACCURACY CALCULATION for all K values from single search results (after
+        // timing)
+        System.out.println("📊 Calculating accuracy metrics...");
+
+        // Initialize result maps for all K values
+        Map<Integer, Double> recallResults = new HashMap<>();
+        Map<Integer, Double> ndcgResults = new HashMap<>();
+
         for (int k : kValues) {
-            // Concurrent search processing - return both recall and NDCG
-            List<SearchMetrics> batchMetrics = VectorProcessor.processBatches(queryBatches, batch -> {
-                double batchRecall = 0.0;
-                double batchNdcg = 0.0;
+            double totalRecall = 0.0;
+            double totalNdcg = 0.0;
 
-                for (int i = 0; i < batch.vectorCount; i++) {
-                    int globalQueryIndex = batch.startIndex + i;
+            for (int i = 0; i < numQueries; i++) {
+                long[] allResults = allSearchResults[i];
 
-                    long[] results;
-                    if (batch.isByteData) {
-                        byte[] vector = new byte[batch.dimensions];
-                        System.arraycopy(batch.byteVectors, i * batch.dimensions, vector, 0, batch.dimensions);
-                        results = index.search(vector, k);
-                    } else {
-                        float[] vector = new float[batch.dimensions];
-                        System.arraycopy(batch.vectors, i * batch.dimensions, vector, 0, batch.dimensions);
-                        results = index.search(vector, k);
-                    }
+                // Truncate results to current K (prefix of the max-K search results)
+                int actualK = Math.min(k, allResults.length);
+                long[] resultsAtK = Arrays.copyOf(allResults, actualK);
 
-                    // Calculate recall using ground truth if available
-                    double queryRecall;
-                    if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
-                        // Convert long[] to int[] and map through vector IDs if available
-                        int[] intResults = new int[results.length];
-                        for (int j = 0; j < results.length; j++) {
-                            int vectorIndex = (int) results[j];
-                            // Map through vector IDs if available (for subset support)
-                            if (finalVectorIds != null && vectorIndex < finalVectorIds.getNumVectors()) {
-                                intResults[j] = finalVectorIds.getId(vectorIndex);
-                            } else {
-                                intResults[j] = vectorIndex;
-                            }
+                // Calculate recall using ground truth if available
+                double queryRecall;
+                double queryNdcg = 0.0;
+                if (groundTruth != null && i < groundTruth.getNumQueries()) {
+                    // Convert long[] to int[] and map through vector IDs if available
+                    int[] intResults = new int[actualK];
+                    for (int j = 0; j < actualK; j++) {
+                        int vectorIndex = (int) resultsAtK[j];
+                        // Map through vector IDs if available (for subset support)
+                        if (vectorIds != null && vectorIndex < vectorIds.getNumVectors()) {
+                            intResults[j] = vectorIds.getId(vectorIndex);
+                        } else {
+                            intResults[j] = vectorIndex;
                         }
-                        queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex,
-                                intResults, k);
-                        double queryNdcg = BinaryVectorLoader.calculateNDCGAtK(finalGroundTruth, globalQueryIndex,
-                                intResults, k);
-                        batchNdcg += queryNdcg;
-                    } else {
-                        // Simplified recall calculation
-                        queryRecall = Math.min(1.0, (double) results.length / k);
-                        batchNdcg += queryRecall; // Use same as recall when no ground truth
                     }
-
-                    batchRecall += queryRecall;
+                    queryRecall = BinaryVectorLoader.calculateRecallAtK(groundTruth, i, intResults, k);
+                    queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, intResults, k);
+                } else {
+                    // Simplified recall calculation (no NDCG without ground truth)
+                    queryRecall = Math.min(1.0, (double) actualK / k);
                 }
 
-                Map<Integer, Double> singleRecall = new HashMap<>();
-                Map<Integer, Double> singleNdcg = new HashMap<>();
-                singleRecall.put(k, batchRecall);
-                singleNdcg.put(k, batchNdcg);
-                return new SearchMetrics(singleRecall, singleNdcg);
-            }, "Searching k=" + k);
+                totalRecall += queryRecall;
+                totalNdcg += queryNdcg;
+            }
 
-            // Aggregate recall and NDCG from all batches
-            double totalRecall = batchMetrics.stream().mapToDouble(m -> m.recallAtK.get(k)).sum();
-            double totalNdcg = batchMetrics.stream().mapToDouble(m -> m.ndcgAtK.get(k)).sum();
             recallResults.put(k, totalRecall / numQueries);
             ndcgResults.put(k, totalNdcg / numQueries);
         }

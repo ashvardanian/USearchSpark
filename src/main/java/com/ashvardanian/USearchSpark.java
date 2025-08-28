@@ -60,12 +60,13 @@ public class USearchSpark {
                   msft-spacev-1b      1B vectors, 100 dims, int8 (131GB)
 
                 OPTIONS
-                  --max-vectors N     Limit vectors to index (default: all, use -1 for all)
-                  --precision LIST    Comma-separated: f32,f16,bf16,i8 (default: all)
-                  --output PATH       Results directory (default: benchmark_results)
-                  --queries N         Number of queries (default: 10000)
-                  --k-values LIST     Comma-separated k values (default: 1,10,100)
-                  --help, -h          Show this help
+                  --max-vectors N        Limit vectors to index (default: all, use -1 for all)
+                  --precision LIST       Comma-separated: f32,f16,bf16,i8 (default: all)
+                  --output PATH          Results directory (default: benchmark_results)
+                  --queries N            Number of queries (default: 10000)
+                  --k-values LIST        Comma-separated k values (default: 1,10,100)
+                  --batch-size N         Parallel processing batch size (default: 1024)
+                  --help, -h             Show this help
 
                 EXAMPLES
                   # Quick test with 100K vectors

@@ -105,6 +105,18 @@ public class BinaryVectorLoader {
             }
 
             float[] result = new float[cols];
+            getVectorAsFloat(index, result);
+            return result;
+        }
+
+        public void getVectorAsFloat(int index, float[] result) {
+            if (index >= rows) {
+                throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
+            }
+            if (result.length < cols) {
+                throw new IllegalArgumentException("Buffer too small: " + result.length + " < " + cols);
+            }
+
             long offset = (long) index * cols * type.getByteSize();
 
             switch (type) {
@@ -143,8 +155,6 @@ public class BinaryVectorLoader {
                 default:
                     throw new UnsupportedOperationException("Unsupported vector type: " + type);
             }
-
-            return result;
         }
 
         // Helper methods to handle long offsets across multiple memory-mapped segments
@@ -228,6 +238,18 @@ public class BinaryVectorLoader {
             }
 
             byte[] result = new byte[cols];
+            getVectorAsByte(index, result);
+            return result;
+        }
+
+        public void getVectorAsByte(int index, byte[] result) {
+            if (index >= rows) {
+                throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
+            }
+            if (result.length < cols) {
+                throw new IllegalArgumentException("Buffer too small: " + result.length + " < " + cols);
+            }
+
             long offset = (long) index * cols * type.getByteSize();
 
             switch (type) {
@@ -244,15 +266,14 @@ public class BinaryVectorLoader {
                     }
                     break;
                 default:
-                    // Convert other types to byte via float
-                    float[] floatVector = getVectorAsFloat(index);
+                    // Convert other types to byte via float - use reusable buffer
+                    float[] tempFloatBuffer = new float[cols];
+                    getVectorAsFloat(index, tempFloatBuffer);
                     for (int i = 0; i < cols; i++) {
-                        result[i] = (byte) Math.round(floatVector[i] * 127.0f);
+                        result[i] = (byte) Math.round(tempFloatBuffer[i] * 127.0f);
                     }
                     break;
             }
-
-            return result;
         }
 
         public boolean isI8Data() {
@@ -304,7 +325,8 @@ public class BinaryVectorLoader {
             // For larger files, we create multiple segments as described in:
             // https://blog.vanillajava.blog/2011/12/using-memory-mapped-file-for-huge.html
 
-            final long maxSegmentSize = Integer.MAX_VALUE - 1024; // Leave some buffer
+            // JVM ByteBuffer limitation - max ~2GB per segment
+            final long maxSegmentSize = Integer.MAX_VALUE - 1024;
             ByteBuffer[] segments;
             long segmentSize;
 

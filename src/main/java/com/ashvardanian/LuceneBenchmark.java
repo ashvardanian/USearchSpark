@@ -2,6 +2,7 @@ package com.ashvardanian;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -157,15 +158,24 @@ public class LuceneBenchmark {
         long startIndexing = System.currentTimeMillis();
         long memoryBefore = getMemoryUsage();
 
-        // Create batches for multithreaded indexing
-        List<VectorProcessor.VectorBatch> indexingBatches = VectorProcessor.createBatches(baseVectors, numBaseVectors,
-                false, 1024);
+        // Direct indexing without artificial batching - using reusable buffer
+        ProgressLogger indexProgress = new ProgressLogger("Indexing F32", numBaseVectors);
 
-        // Multithreaded batch indexing
-        VectorProcessor.processBatches(indexingBatches, batch -> {
-            addVectorBatchToIndex(indexWriter, batch);
-            return null;
-        }, "Indexing F32");
+        // Pre-allocate reusable buffer to avoid repeated allocations
+        float[] vectorBuffer = new float[baseVectors.getCols()];
+
+        for (int i = 0; i < numBaseVectors; i++) {
+            long key = i; // Use index as document ID
+            baseVectors.getVectorAsFloat(i, vectorBuffer);
+
+            Document document = new Document();
+            document.add(new StoredField("id", key));
+            document.add(new KnnFloatVectorField("vector", vectorBuffer.clone())); // Clone needed for Lucene
+            indexWriter.addDocument(document);
+
+            indexProgress.update(i + 1);
+        }
+        indexProgress.complete(numBaseVectors);
 
         indexWriter.close();
 
@@ -179,11 +189,10 @@ public class LuceneBenchmark {
 
         // Measure search time and calculate recall & NDCG
         long startSearch = System.currentTimeMillis();
-        System.out.print("🔍 Searching... ");
+        System.out.println("🔍 Searching...");
         SearchMetrics searchMetrics = calculateSearchMetrics(indexSearcher, queryVectors, numQueries,
                 config.getKValues());
         long searchTime = System.currentTimeMillis() - startSearch;
-        System.out.println("✅ Done");
 
         // Calculate throughput
         double throughputQPS = numQueries / (searchTime / 1000.0);
@@ -231,8 +240,6 @@ public class LuceneBenchmark {
     private SearchMetrics calculateSearchMetrics(IndexSearcher indexSearcher,
             BinaryVectorLoader.VectorDataset queryVectors,
             int numQueries, int[] kValues) throws Exception {
-        Map<Integer, Double> recallResults = new HashMap<>();
-        Map<Integer, Double> ndcgResults = new HashMap<>();
         String vectorFieldName = "vector";
 
         // Try to load ground truth if available
@@ -259,70 +266,79 @@ public class LuceneBenchmark {
             logger.warn("Could not load vector IDs: {}", e.getMessage());
         }
 
-        // Create batches for query vectors
-        List<VectorProcessor.VectorBatch> queryBatches = VectorProcessor.createBatches(queryVectors, numQueries, false,
-                1024); // Lucene always uses float
+        // Pre-allocate result arrays to avoid allocation overhead during timing
+        TopDocs[] allSearchResults = new TopDocs[numQueries];
 
-        final BinaryVectorLoader.GroundTruth finalGroundTruth = groundTruth;
-        final BinaryVectorLoader.VectorIds finalVectorIds = vectorIds;
+        // Find maximum K value for single search optimization
+        int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // For each k value, run concurrent searches
-        for (int k : kValues) {
-            // Concurrent search processing - now returns [recall, ndcg] pairs
-            List<double[]> metrics = VectorProcessor.processBatches(queryBatches, batch -> {
-                double batchRecall = 0.0;
-                double batchNdcg = 0.0;
+        // Pre-allocate reusable query buffer to avoid repeated allocations
+        float[] queryBuffer = new float[queryVectors.getCols()];
 
-                try {
-                    for (int i = 0; i < batch.vectorCount; i++) {
-                        int globalQueryIndex = batch.startIndex + i;
+        // SINGLE SEARCH with maximum K - no accuracy calculations during timing
+        ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
+        long startSearch = System.currentTimeMillis();
+        for (int i = 0; i < numQueries; i++) {
+            queryVectors.getVectorAsFloat(i, queryBuffer);
 
-                        float[] vector = new float[batch.dimensions];
-                        System.arraycopy(batch.vectors, i * batch.dimensions, vector, 0, batch.dimensions);
+            // Perform HNSW search with maximum K
+            KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
+            allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
 
-                        // Perform HNSW search
-                        KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, vector, k);
-                        TopDocs topDocs = indexSearcher.search(vectorQuery, k);
+            searchProgress.update(i + 1);
+        }
+        long searchTime = System.currentTimeMillis() - startSearch;
+        searchProgress.complete(numQueries);
 
-                        // Calculate recall and NDCG using ground truth if available
-                        double queryRecall;
-                        double queryNdcg;
-                        if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
-                            // Extract stored document IDs from search results
-                            int[] intResults = new int[topDocs.scoreDocs.length];
-                            for (int j = 0; j < topDocs.scoreDocs.length; j++) {
-                                int luceneDocId = topDocs.scoreDocs[j].doc;
-                                // Retrieve the stored ID field - this is our consistent [0,N) key
-                                org.apache.lucene.document.Document doc = indexSearcher.storedFields()
-                                        .document(luceneDocId);
-                                long storedId = doc.getField("id").numericValue().longValue();
-                                intResults[j] = (int) storedId;
-                            }
-                            queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex,
-                                    intResults, k);
-                            queryNdcg = BinaryVectorLoader.calculateNDCGAtK(finalGroundTruth, globalQueryIndex,
-                                    intResults, k);
-                        } else {
-                            // Simplified recall calculation (no NDCG without ground truth)
-                            queryRecall = Math.min(1.0, (double) topDocs.scoreDocs.length / k);
-                            queryNdcg = 0.0;
+        // ACCURACY CALCULATION for all K values from single search results (after
+        // timing)
+        System.out.println("📊 Calculating accuracy metrics...");
+
+        // Initialize result maps for all K values
+        Map<Integer, Double> recallResults = new HashMap<>();
+        Map<Integer, Double> ndcgResults = new HashMap<>();
+
+        try {
+            for (int k : kValues) {
+                double totalRecall = 0.0;
+                double totalNdcg = 0.0;
+
+                for (int i = 0; i < numQueries; i++) {
+                    TopDocs topDocs = allSearchResults[i];
+
+                    // Truncate results to current K (prefix of the max-K search results)
+                    int actualK = Math.min(k, topDocs.scoreDocs.length);
+
+                    // Calculate recall using ground truth if available
+                    double queryRecall;
+                    double queryNdcg = 0.0;
+                    if (groundTruth != null && i < groundTruth.getNumQueries()) {
+                        // Extract stored document IDs from search results (only first actualK)
+                        int[] intResults = new int[actualK];
+                        for (int j = 0; j < actualK; j++) {
+                            int luceneDocId = topDocs.scoreDocs[j].doc;
+                            // Retrieve the stored ID field - this is our consistent [0,N) key
+                            org.apache.lucene.document.Document doc = indexSearcher.storedFields()
+                                    .document(luceneDocId);
+                            long storedId = doc.getField("id").numericValue().longValue();
+                            intResults[j] = (int) storedId;
                         }
-
-                        batchRecall += queryRecall;
-                        batchNdcg += queryNdcg;
+                        queryRecall = BinaryVectorLoader.calculateRecallAtK(groundTruth, i, intResults, k);
+                        queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, intResults, k);
+                    } else {
+                        // Simplified recall calculation (no NDCG without ground truth)
+                        queryRecall = Math.min(1.0, (double) actualK / k);
                     }
-                } catch (IOException e) {
-                    throw new RuntimeException("Search failed", e);
+
+                    totalRecall += queryRecall;
+                    totalNdcg += queryNdcg;
                 }
 
-                return new double[] { batchRecall, batchNdcg };
-            }, "Searching k=" + k);
-
-            // Aggregate recall and NDCG from all batches
-            double totalRecall = metrics.stream().mapToDouble(m -> m[0]).sum();
-            double totalNdcg = metrics.stream().mapToDouble(m -> m[1]).sum();
-            recallResults.put(k, totalRecall / numQueries);
-            ndcgResults.put(k, totalNdcg / numQueries);
+                recallResults.put(k, totalRecall / numQueries);
+                ndcgResults.put(k, totalNdcg / numQueries);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Accuracy calculation failed", e);
         }
 
         return new SearchMetrics(recallResults, ndcgResults);
