@@ -3,32 +3,40 @@ package com.ashvardanian;
 import java.util.List;
 import java.util.Map;
 
+import de.vandermeer.asciitable.AsciiTable;
+import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment;
+
 public class BenchmarkResultsTable {
+    
+    private static String formatMemory(long bytes) {
+        double mb = bytes / (1024.0 * 1024.0);
+        if (mb >= 1024) {
+            return String.format("%.1f GB", mb / 1024.0);
+        }
+        return String.format("%.0f MB", mb);
+    }
     
     public static void printComparisonTable(Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
                                           LuceneBenchmark.BenchmarkResult luceneResult) {
-        System.out.println("\n" + "=".repeat(100));
-        System.out.println("🏆 VECTOR SEARCH BENCHMARK RESULTS (vs Lucene F32 Baseline)");
-        System.out.println("=".repeat(100));
+        System.out.println("\n📊 VECTOR SEARCH BENCHMARK RESULTS 📊");
+        System.out.println("═".repeat(85));
+        System.out.println();
         
-        // Table header
-        System.out.printf("%-12s | %-9s | %-10s | %-10s | %-8s | %-10s | %-10s | %-12s%n",
-            "Implementation", "Precision", "Index (ms)", "Search (ms)", "QPS", "Recall@1", "Recall@10", "vs Baseline");
-        System.out.println("-".repeat(100));
+        // Performance metrics table
+        System.out.println("🚀 PERFORMANCE METRICS");
+        AsciiTable perfTable = new AsciiTable();
+        perfTable.addRule();
+        perfTable.addRow("Engine", "Precision", "IPS", "QPS", "Memory");
+        perfTable.addRule();
         
-        // Lucene baseline (reference point)
-        System.out.printf("%-12s | %-9s | %,10d | %,10d | %8.0f | %10.4f | %10.4f | %12s%n",
-            "Lucene", "F32", 
-            luceneResult.getIndexingTimeMs(),
-            luceneResult.getSearchTimeMs(),
-            luceneResult.getThroughputQPS(),
-            luceneResult.getRecallAtK().get(1),
-            luceneResult.getRecallAtK().get(10),
-            "BASELINE");
+        // Lucene first as requested
+        double luceneIps = luceneResult.getIndexingTimeMs() > 0 ? (1000000.0 * 1000.0) / luceneResult.getIndexingTimeMs() : 0;
+        perfTable.addRow("Apache", "F32", 
+            String.format("%,.0f", luceneIps),
+            String.format("%,.0f", luceneResult.getThroughputQPS()),
+            formatMemory(luceneResult.getMemoryUsageBytes()));
         
-        System.out.println("-".repeat(100));
-        
-        // USearch results - all compared to Lucene F32
+        // USearch results
         List<BenchmarkConfig.Precision> precisions = List.of(
             BenchmarkConfig.Precision.F32,
             BenchmarkConfig.Precision.F16, 
@@ -39,60 +47,73 @@ public class BenchmarkResultsTable {
         for (BenchmarkConfig.Precision precision : precisions) {
             USearchBenchmark.BenchmarkResult result = usearchResults.get(precision);
             if (result != null) {
-                // Calculate speedup vs Lucene F32 baseline
-                double qpsSpeedup = result.getThroughputQPS() / luceneResult.getThroughputQPS();
-                String speedupStr = String.format("%.1fx faster", qpsSpeedup);
-                if (qpsSpeedup < 1.0) {
-                    speedupStr = String.format("%.1fx slower", 1.0 / qpsSpeedup);
-                }
-                
-                System.out.printf("%-12s | %-9s | %,10d | %,10d | %8.0f | %10.4f | %10.4f | %12s%n",
-                    "USearch", precision.getName().toUpperCase(),
-                    result.getIndexingTimeMs(),
-                    result.getSearchTimeMs(),
-                    result.getThroughputQPS(),
-                    result.getRecallAtK().get(1),
-                    result.getRecallAtK().get(10),
-                    speedupStr);
+                double ips = result.getIndexingTimeMs() > 0 ? (1000000.0 * 1000.0) / result.getIndexingTimeMs() : 0;
+                perfTable.addRow("USearch", precision.getName().toUpperCase(),
+                    String.format("%,.0f", ips),
+                    String.format("%,.0f", result.getThroughputQPS()),
+                    formatMemory(result.getMemoryUsageBytes()));
             }
         }
         
-        System.out.println("=".repeat(100));
+        perfTable.addRule();
+        perfTable.getContext().setWidth(75);
+        perfTable.setPaddingLeftRight(1);
+        System.out.println(perfTable.render());
         
-        // Performance summary - all vs Lucene F32
-        System.out.println("🚀 PERFORMANCE SUMMARY (vs Lucene F32 Baseline):");
+        // Recall metrics table
+        System.out.println("🎯 RECALL METRICS");
+        AsciiTable recallTable = new AsciiTable();
+        recallTable.addRule();
+        recallTable.addRow("Engine", "Precision", "Recall@1", "Recall@10", "Recall@100");
+        recallTable.addRule();
         
+        // Lucene first
+        recallTable.addRow("Apache", "F32",
+            String.format("%.4f", luceneResult.getRecallAtK().get(1)),
+            String.format("%.4f", luceneResult.getRecallAtK().get(10)),
+            String.format("%.4f", luceneResult.getRecallAtK().getOrDefault(100, 0.0)));
+        
+        // USearch results
         for (BenchmarkConfig.Precision precision : precisions) {
             USearchBenchmark.BenchmarkResult result = usearchResults.get(precision);
             if (result != null) {
-                double indexSpeedup = (double) luceneResult.getIndexingTimeMs() / result.getIndexingTimeMs();
-                double searchSpeedup = (double) luceneResult.getSearchTimeMs() / result.getSearchTimeMs();
-                double qpsImprovement = result.getThroughputQPS() / luceneResult.getThroughputQPS();
-                
-                System.out.printf("   • USearch %s: %.1fx indexing, %.1fx search, %.1fx throughput%n", 
-                    precision.getName().toUpperCase(), indexSpeedup, searchSpeedup, qpsImprovement);
+                recallTable.addRow("USearch", precision.getName().toUpperCase(),
+                    String.format("%.4f", result.getRecallAtK().get(1)),
+                    String.format("%.4f", result.getRecallAtK().get(10)),
+                    String.format("%.4f", result.getRecallAtK().getOrDefault(100, 0.0)));
             }
         }
         
-        // Highlight the best performer
+        recallTable.addRule();
+        recallTable.getContext().setWidth(75);
+        recallTable.setPaddingLeftRight(1);
+        System.out.println(recallTable.render());
+        
+        // Find best performer
         USearchBenchmark.BenchmarkResult bestResult = null;
         BenchmarkConfig.Precision bestPrecision = null;
-        double bestQps = 0;
+        double bestQps = luceneResult.getThroughputQPS();
+        String bestEngine = "Apache";
         
         for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry : usearchResults.entrySet()) {
             if (entry.getValue().getThroughputQPS() > bestQps) {
                 bestQps = entry.getValue().getThroughputQPS();
                 bestResult = entry.getValue();
                 bestPrecision = entry.getKey();
+                bestEngine = "USearch";
             }
         }
         
-        if (bestResult != null) {
-            double bestImprovement = bestResult.getThroughputQPS() / luceneResult.getThroughputQPS();
-            System.out.printf("%n🏅 WINNER: USearch %s with %.1fx better throughput than Lucene F32!%n", 
-                bestPrecision.getName().toUpperCase(), bestImprovement);
+        if (bestPrecision != null && bestResult != null) {
+            double bestRecall = bestResult.getRecallAtK().get(10);
+            System.out.printf("🏆 WINNER: %s %s - Best QPS (%,.0f) with %.2f%% recall@10%n", 
+                bestEngine, bestPrecision.getName().toUpperCase(), bestQps, bestRecall * 100);
+        } else {
+            System.out.printf("🏆 WINNER: Apache F32 - Best QPS (%,.0f) with %.2f%% recall@10%n", 
+                bestQps, luceneResult.getRecallAtK().get(10) * 100);
         }
         
+        System.out.println("💡 IPS = Insertions Per Second (indexing), QPS = Queries Per Second (search)");
         System.out.println();
     }
 }
