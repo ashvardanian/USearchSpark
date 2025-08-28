@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.IntStream;
 
@@ -252,23 +253,52 @@ public class USearchBenchmark {
                     indexProgress.increment();
                 }
             } else {
-                // Multi-threaded indexing - each thread allocates its own buffer
-                IntStream.range(0, numBaseVectors).parallel().forEach(i -> {
-                    try {
-                        if (useByteData) {
-                            byte[] byteBuffer = new byte[baseVectors.getCols()];
-                            baseVectors.getVectorAsByte(i, byteBuffer);
-                            index.add(i, byteBuffer); // JNI: GetByteArrayElements + ReleaseByteArrayElements
-                        } else {
-                            float[] floatBuffer = new float[baseVectors.getCols()];
-                            baseVectors.getVectorAsFloat(i, floatBuffer);
-                            index.add(i, floatBuffer); // JNI: GetFloatArrayElements + ReleaseFloatArrayElements
-                        }
-                        indexProgress.increment();
-                    } catch (Exception e) {
-                        throw new RuntimeException("Parallel indexing failed at vector " + i, e);
+                // Multi-threaded indexing with clean work partitioning
+                ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+                try {
+                    List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+                    // Partition work evenly across threads
+                    int vectorsPerThread = numBaseVectors / numThreads;
+                    int remainingVectors = numBaseVectors % numThreads;
+
+                    for (int threadId = 0; threadId < numThreads; threadId++) {
+                        final int startIdx = threadId * vectorsPerThread + Math.min(threadId, remainingVectors);
+                        final int endIdx = startIdx + vectorsPerThread + (threadId < remainingVectors ? 1 : 0);
+                        final int finalThreadId = threadId;
+
+                        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                            try {
+                                if (useByteData) {
+                                    byte[] byteBuffer = new byte[baseVectors.getCols()];
+                                    for (int i = startIdx; i < endIdx; i++) {
+                                        baseVectors.getVectorAsByte(i, byteBuffer);
+                                        index.add(i, byteBuffer);
+                                        indexProgress.increment();
+                                    }
+                                } else {
+                                    float[] floatBuffer = new float[baseVectors.getCols()];
+                                    for (int i = startIdx; i < endIdx; i++) {
+                                        baseVectors.getVectorAsFloat(i, floatBuffer);
+                                        index.add(i, floatBuffer);
+                                        indexProgress.increment();
+                                    }
+                                }
+                            } catch (Exception e) {
+                                throw new RuntimeException("Indexing failed in thread " + finalThreadId +
+                                        " (range " + startIdx + "-" + endIdx + ")", e);
+                            }
+                        }, customThreadPool);
+
+                        futures.add(future);
                     }
-                });
+
+                    // Wait for all threads to complete
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+
+                } finally {
+                    customThreadPool.shutdown();
+                }
             }
 
             indexProgress.complete(numBaseVectors);
@@ -362,45 +392,51 @@ public class USearchBenchmark {
                 searchProgress.increment();
             }
         } else {
-            // Multi-threaded search with pre-allocated thread-local buffers
-            final int bufferSize = queryVectors.getCols();
-            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(
-                    0);
+            // Multi-threaded search with clean work partitioning
+            ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-            if (useByteData) {
-                // Pre-allocate byte buffers for each thread
-                final byte[][] threadBuffers = new byte[numThreads][bufferSize];
+                // Partition work evenly across threads
+                int queriesPerThread = numQueries / numThreads;
+                int remainingQueries = numQueries % numThreads;
 
-                IntStream.range(0, numQueries).parallel().forEach(i -> {
-                    try {
-                        // Each thread gets its own buffer slice
-                        int threadId = threadCounter.getAndIncrement() % numThreads;
-                        byte[] queryBuffer = threadBuffers[threadId];
+                for (int threadId = 0; threadId < numThreads; threadId++) {
+                    final int startIdx = threadId * queriesPerThread + Math.min(threadId, remainingQueries);
+                    final int endIdx = startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
+                    final int finalThreadId = threadId;
 
-                        queryVectors.getVectorAsByte(i, queryBuffer);
-                        allSearchResults[i] = index.search(queryBuffer, maxK);
-                        searchProgress.increment();
-                    } catch (Exception e) {
-                        throw new RuntimeException("Parallel search failed at query " + i, e);
-                    }
-                });
-            } else {
-                // Pre-allocate float buffers for each thread
-                final float[][] threadBuffers = new float[numThreads][bufferSize];
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            if (useByteData) {
+                                byte[] queryBuffer = new byte[queryVectors.getCols()];
+                                for (int i = startIdx; i < endIdx; i++) {
+                                    queryVectors.getVectorAsByte(i, queryBuffer);
+                                    allSearchResults[i] = index.search(queryBuffer, maxK);
+                                    searchProgress.increment();
+                                }
+                            } else {
+                                float[] queryBuffer = new float[queryVectors.getCols()];
+                                for (int i = startIdx; i < endIdx; i++) {
+                                    queryVectors.getVectorAsFloat(i, queryBuffer);
+                                    allSearchResults[i] = index.search(queryBuffer, maxK);
+                                    searchProgress.increment();
+                                }
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException("Search failed in thread " + finalThreadId +
+                                    " (range " + startIdx + "-" + endIdx + ")", e);
+                        }
+                    }, customThreadPool);
 
-                IntStream.range(0, numQueries).parallel().forEach(i -> {
-                    try {
-                        // Each thread gets its own buffer slice (thread-safe via modulo)
-                        int threadId = threadCounter.getAndIncrement() % numThreads;
-                        float[] queryBuffer = threadBuffers[threadId];
+                    futures.add(future);
+                }
 
-                        queryVectors.getVectorAsFloat(i, queryBuffer);
-                        allSearchResults[i] = index.search(queryBuffer, maxK);
-                        searchProgress.increment();
-                    } catch (Exception e) {
-                        throw new RuntimeException("Parallel search failed at query " + i, e);
-                    }
-                });
+                // Wait for all threads to complete
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+
+            } finally {
+                customThreadPool.shutdown();
             }
         }
 

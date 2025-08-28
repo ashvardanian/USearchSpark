@@ -7,6 +7,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -188,28 +190,67 @@ public class LuceneBenchmark {
 
         ProgressLogger indexProgress = new ProgressLogger("Indexing F32", numBaseVectors);
 
-        // Parallel indexing - IndexWriter.addDocument() is thread-safe
-        java.util.stream.IntStream.range(0, numBaseVectors).parallel().forEach(i -> {
-            try {
-                // Each thread needs its own buffer to avoid race conditions
-                float[] vectorBuffer = new float[baseVectors.getCols()];
+        // Parallel indexing with clean work partitioning - IndexWriter.addDocument() is
+        // thread-safe
+        if (numThreads == 1) {
+            // Single-threaded indexing
+            float[] vectorBuffer = new float[baseVectors.getCols()];
+            for (int i = 0; i < numBaseVectors; i++) {
                 baseVectors.getVectorAsFloat(i, vectorBuffer);
-
-                // Store the final ID directly - no conversion needed during search
                 long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
                         ? vectorIds.getId(i)
                         : i;
-
                 Document document = new Document();
                 document.add(new StoredField("id", finalId));
                 document.add(new KnnFloatVectorField("vector", vectorBuffer));
                 indexWriter.addDocument(document);
-
                 indexProgress.increment();
-            } catch (Exception e) {
-                throw new RuntimeException("Indexing failed for vector " + i, e);
             }
-        });
+        } else {
+            // Multi-threaded indexing with clean work partitioning
+            ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+                // Partition work evenly across threads
+                int vectorsPerThread = numBaseVectors / numThreads;
+                int remainingVectors = numBaseVectors % numThreads;
+
+                for (int threadId = 0; threadId < numThreads; threadId++) {
+                    final int startIdx = threadId * vectorsPerThread + Math.min(threadId, remainingVectors);
+                    final int endIdx = startIdx + vectorsPerThread + (threadId < remainingVectors ? 1 : 0);
+                    final int finalThreadId = threadId;
+
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            float[] vectorBuffer = new float[baseVectors.getCols()];
+                            for (int i = startIdx; i < endIdx; i++) {
+                                baseVectors.getVectorAsFloat(i, vectorBuffer);
+                                long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
+                                        ? vectorIds.getId(i)
+                                        : i;
+                                Document document = new Document();
+                                document.add(new StoredField("id", finalId));
+                                document.add(new KnnFloatVectorField("vector", vectorBuffer));
+                                indexWriter.addDocument(document);
+                                indexProgress.increment();
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException("Indexing failed in thread " + finalThreadId +
+                                    " (range " + startIdx + "-" + endIdx + ")", e);
+                        }
+                    }, customThreadPool);
+
+                    futures.add(future);
+                }
+
+                // Wait for all threads to complete
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+
+            } finally {
+                customThreadPool.shutdown();
+            }
+        }
         indexProgress.complete(numBaseVectors);
 
         indexWriter.close();
@@ -314,26 +355,45 @@ public class LuceneBenchmark {
                 pureSearchProgress.increment();
             }
         } else {
-            // Multi-threaded search with pre-allocated thread-local buffers
-            final int bufferSize = queryVectors.getCols();
-            final float[][] threadBuffers = new float[numThreads][bufferSize];
-            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(
-                    0);
+            // Multi-threaded search with clean work partitioning
+            ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-            java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
-                try {
-                    // Each thread gets its own buffer slice
-                    int threadId = threadCounter.getAndIncrement() % numThreads;
-                    float[] queryBuffer = threadBuffers[threadId];
-                    queryVectors.getVectorAsFloat(i, queryBuffer);
+                // Partition work evenly across threads
+                int queriesPerThread = numQueries / numThreads;
+                int remainingQueries = numQueries % numThreads;
 
-                    KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
-                    pureSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
-                    pureSearchProgress.increment();
-                } catch (Exception e) {
-                    throw new RuntimeException("Pure search failed for query " + i, e);
+                for (int threadId = 0; threadId < numThreads; threadId++) {
+                    final int startIdx = threadId * queriesPerThread + Math.min(threadId, remainingQueries);
+                    final int endIdx = startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
+                    final int finalThreadId = threadId;
+
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            float[] queryBuffer = new float[queryVectors.getCols()];
+                            for (int i = startIdx; i < endIdx; i++) {
+                                queryVectors.getVectorAsFloat(i, queryBuffer);
+                                KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer,
+                                        maxK);
+                                pureSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
+                                pureSearchProgress.increment();
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException("Pure search failed in thread " + finalThreadId +
+                                    " (range " + startIdx + "-" + endIdx + ")", e);
+                        }
+                    }, customThreadPool);
+
+                    futures.add(future);
                 }
-            });
+
+                // Wait for all threads to complete
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+
+            } finally {
+                customThreadPool.shutdown();
+            }
         }
         long pureSearchTime = System.currentTimeMillis() - startPureSearch;
         pureSearchProgress.complete(numQueries);
@@ -348,14 +408,41 @@ public class LuceneBenchmark {
                 idRetrievalProgress.increment();
             }
         } else {
-            java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
-                try {
-                    allSearchResults[i] = extractDocumentIds(pureSearchResults[i], maxK, indexSearcher);
-                    idRetrievalProgress.increment();
-                } catch (Exception e) {
-                    throw new RuntimeException("ID retrieval failed for query " + i, e);
+            // Multi-threaded ID retrieval with clean work partitioning
+            ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+                // Partition work evenly across threads
+                int queriesPerThread = numQueries / numThreads;
+                int remainingQueries = numQueries % numThreads;
+
+                for (int threadId = 0; threadId < numThreads; threadId++) {
+                    final int startIdx = threadId * queriesPerThread + Math.min(threadId, remainingQueries);
+                    final int endIdx = startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
+                    final int finalThreadId = threadId;
+
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            for (int i = startIdx; i < endIdx; i++) {
+                                allSearchResults[i] = extractDocumentIds(pureSearchResults[i], maxK, indexSearcher);
+                                idRetrievalProgress.increment();
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException("ID retrieval failed in thread " + finalThreadId +
+                                    " (range " + startIdx + "-" + endIdx + ")", e);
+                        }
+                    }, customThreadPool);
+
+                    futures.add(future);
                 }
-            });
+
+                // Wait for all threads to complete
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+
+            } finally {
+                customThreadPool.shutdown();
+            }
         }
         long idRetrievalTime = System.currentTimeMillis() - startIdRetrieval;
         idRetrievalProgress.complete(numQueries);
