@@ -26,7 +26,7 @@ JAVA_OPTS="-Xms2g -Xmx8g" gradle run --args="unum-wiki-1m --max-vectors 10000 --
 JAVA_OPTS="-Xms2g -Xmx8g" gradle run --args="unum-wiki-1m --max-vectors 10000 --queries 10000 --batch-size 100 --threads 8"
 ```
 
-Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing clean output like, the following results obtained for the 100M `msft-spacev-100m` subset of Microsoft SpaceV on AWS `m7i.metal-48xl` instances with 92 cores and 192 threads across 2 sockets.
+Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki dataset locally, producing clean output like, the following results obtained for the 100M `msft-spacev-100m` subset of Microsoft SpaceV:
 
 ```
 🚀 PERFORMANCE METRICS
@@ -51,9 +51,17 @@ Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki d
 └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
-> IPS stands for Insertions Per Second, and QPS is Queries Per Second.
-> Recall@K is computed as a fraction of search queries, where the known "ground-truth" Top-1 result appeared among the Top-K approximate results.
-> NDCG@K stands for Normalized [Discounted Cumulative Gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain) at K, which measures the effectiveness of the search results by considering the position of the relevant documents.
+> __Hardware__: AWS `m7i.metal-48xl` instances (92 physical cores, 192 threads, 2 sockets).
+> __OS__: Linux 6.8.0-1024-aws (Ubuntu 22.04.5 LTS).
+> __CPU__: Intel Xeon Platinum 8488C @ 2.4GHz.
+> __Memory__: 768 GB RAM total.
+> __Java__: OpenJDK 21.0.5 with Java Vector API (`--add-modules=jdk.incubator.vector`).
+> __JVM__: 128GB heap (`-Xmx128g`) with ZGC garbage collector (`-XX:+UseZGC`) for sub-10ms pauses.
+> __Library versions__: USearch v2.20.4, Lucene v9.12.0.
+
+IPS stands for Insertions Per Second, and QPS is Queries Per Second.
+Recall@K is computed as a fraction of search queries, where the known "ground-truth" Top-1 result appeared among the Top-K approximate results.
+NDCG@K stands for Normalized [Discounted Cumulative Gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain) at K, which measures the effectiveness of the search results by considering the position of the relevant documents.
 
 ## Datasets
 

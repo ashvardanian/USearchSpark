@@ -1,5 +1,8 @@
 package com.ashvardanian;
 
+import static org.apache.spark.sql.functions.col;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -10,15 +13,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import static org.apache.spark.sql.functions.col;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class USearchIndexingService {
     private static final Logger logger = LoggerFactory.getLogger(USearchIndexingService.class);
@@ -47,17 +46,20 @@ public class USearchIndexingService {
         for (Row shardRow : shardIds) {
             int shardId = shardRow.getInt(0);
             logger.info("Indexing shard {}", shardId);
-            indexShard(shardedData, shardId, outputPath + "/shard_" + shardId, actualVectorDimensions);
+            indexShard(
+                    shardedData, shardId, outputPath + "/shard_" + shardId, actualVectorDimensions);
         }
 
         saveShardMetadata(shardIds, outputPath);
     }
 
-    private void indexShard(Dataset<Row> shardedData, long shardId, String outputPath, int vectorDimensions) {
-        List<Row> shardVectors = shardedData
-                .filter(col("shard_id").equalTo(shardId))
-                .select("id", "embedding")
-                .collectAsList();
+    private void indexShard(
+            Dataset<Row> shardedData, long shardId, String outputPath, int vectorDimensions) {
+        List<Row> shardVectors =
+                shardedData
+                        .filter(col("shard_id").equalTo(shardId))
+                        .select("id", "embedding")
+                        .collectAsList();
 
         logger.info("Shard {} contains {} vectors", shardId, shardVectors.size());
 

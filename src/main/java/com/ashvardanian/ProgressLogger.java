@@ -3,8 +3,8 @@ package com.ashvardanian;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Thread-safe progress logger optimized for billion-scale parallel operations
- * Uses atomic increment with periodic time-based reporting to minimize overhead
+ * Thread-safe progress logger optimized for billion-scale parallel operations Uses atomic increment
+ * with periodic time-based reporting to minimize overhead
  */
 public class ProgressLogger {
     private final String operation;
@@ -40,8 +40,8 @@ public class ProgressLogger {
     }
 
     /**
-     * Atomic increment - optimized for billion-scale parallel processing
-     * Only checks time periodically to minimize System.currentTimeMillis() overhead
+     * Atomic increment - optimized for billion-scale parallel processing Only checks time
+     * periodically to minimize System.currentTimeMillis() overhead
      */
     public void increment() {
         long newProgress = currentProgress.incrementAndGet();
@@ -59,8 +59,11 @@ public class ProgressLogger {
                 double rate = elapsed > 0 ? (newProgress * 1000.0) / elapsed : 0;
 
                 String rateUnit = operation.toLowerCase().contains("search") ? "QPS" : "IPS";
-                System.out.println("   Progress: " + String.format("%.1f%% (%,d/%,d, %,.0f %s)",
-                        progress, newProgress, totalItems, rate, rateUnit));
+                System.out.println(
+                        "   Progress: "
+                                + String.format(
+                                        "%.1f%% (%,d/%,d, %,.0f %s)",
+                                        progress, newProgress, totalItems, rate, rateUnit));
             }
         }
     }
@@ -70,7 +73,10 @@ public class ProgressLogger {
         double rate = elapsed > 0 ? (actualItems * 1000.0) / elapsed : 0;
         String rateUnit = operation.toLowerCase().contains("search") ? "QPS" : "IPS";
 
-        System.out.println("   ✅ " + operation + " completed: " +
-                String.format("%,d items, %,.0f %s", actualItems, rate, rateUnit));
+        System.out.println(
+                "   ✅ "
+                        + operation
+                        + " completed: "
+                        + String.format("%,d items, %,.0f %s", actualItems, rate, rateUnit));
     }
 }

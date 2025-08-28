@@ -9,9 +9,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Multithreaded batch processor for vector operations
- */
+/** Multithreaded batch processor for vector operations */
 public class VectorProcessor {
     private static final int DEFAULT_THREAD_COUNT = Runtime.getRuntime().availableProcessors();
 
@@ -24,7 +22,8 @@ public class VectorProcessor {
         public final int dimensions;
         public final int startIndex; // Starting index in original dataset
 
-        public VectorBatch(long[] keys, float[] vectors, int vectorCount, int dimensions, int startIndex) {
+        public VectorBatch(
+                long[] keys, float[] vectors, int vectorCount, int dimensions, int startIndex) {
             this.keys = keys;
             this.vectors = vectors;
             this.byteVectors = null;
@@ -34,7 +33,8 @@ public class VectorProcessor {
             this.startIndex = startIndex;
         }
 
-        public VectorBatch(long[] keys, byte[] byteVectors, int vectorCount, int dimensions, int startIndex) {
+        public VectorBatch(
+                long[] keys, byte[] byteVectors, int vectorCount, int dimensions, int startIndex) {
             this.keys = keys;
             this.vectors = null;
             this.byteVectors = byteVectors;
@@ -68,7 +68,8 @@ public class VectorProcessor {
                 double ips = elapsedMs > 0 ? (vectors * 1000.0) / elapsedMs : 0;
                 double progress = (double) batches / totalBatches * 100;
 
-                System.out.printf("\r🔄 %s: %.1f%% (%d/%d batches, %,d vectors, %.0f IPS)",
+                System.out.printf(
+                        "\r🔄 %s: %.1f%% (%d/%d batches, %,d vectors, %.0f IPS)",
                         operationName, progress, batches, totalBatches, vectors, ips);
 
                 if (batches == totalBatches) {
@@ -80,19 +81,20 @@ public class VectorProcessor {
         public void completed() {
             long elapsedMs = System.currentTimeMillis() - startTime.get();
             double ips = elapsedMs > 0 ? (totalVectors * 1000.0) / elapsedMs : 0;
-            System.out.printf("✅ %s completed: %,d vectors in %,dms (%.0f IPS)%n",
+            System.out.printf(
+                    "✅ %s completed: %,d vectors in %,dms (%.0f IPS)%n",
                     operationName, totalVectors, elapsedMs, ips);
         }
     }
 
-    /**
-     * Create batches from vector dataset
-     */
-    public static List<VectorBatch> createBatches(BinaryVectorLoader.VectorDataset dataset,
+    /** Create batches from vector dataset */
+    public static List<VectorBatch> createBatches(
+            BinaryVectorLoader.VectorDataset dataset,
             int maxVectors,
             boolean useByteData,
             int batchSize) {
-        int numVectors = maxVectors > 0 ? Math.min(maxVectors, dataset.getRows()) : dataset.getRows();
+        int numVectors =
+                maxVectors > 0 ? Math.min(maxVectors, dataset.getRows()) : dataset.getRows();
         int dimensions = dataset.getCols();
         List<VectorBatch> batches = new ArrayList<>();
 
@@ -114,27 +116,29 @@ public class VectorProcessor {
                         batchVectors[i * dimensions + j] = (byte) Math.round(vector[j] * 127.0f);
                     }
                 }
-                batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));
+                batches.add(
+                        new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));
             } else {
                 float[] batchVectors = new float[currentBatchSize * dimensions];
                 for (int i = 0; i < currentBatchSize; i++) {
                     float[] vector = dataset.getVectorAsFloat(start + i);
                     System.arraycopy(vector, 0, batchVectors, i * dimensions, dimensions);
                 }
-                batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));
+                batches.add(
+                        new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));
             }
         }
 
         return batches;
     }
 
-    /**
-     * Process batches using multiple threads with a custom batch processor
-     */
-    public static <T> List<T> processBatches(List<VectorBatch> batches,
+    /** Process batches using multiple threads with a custom batch processor */
+    public static <T> List<T> processBatches(
+            List<VectorBatch> batches,
             BatchProcessor<T> processor,
             String operationName,
-            int threadCount) throws Exception {
+            int threadCount)
+            throws Exception {
         if (batches.isEmpty()) {
             return new ArrayList<>();
         }
@@ -148,15 +152,17 @@ public class VectorProcessor {
         try {
             // Submit all batch processing tasks
             for (VectorBatch batch : batches) {
-                futures.add(executor.submit(() -> {
-                    try {
-                        T result = processor.processBatch(batch);
-                        tracker.onBatchCompleted(batch.vectorCount);
-                        return result;
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to process batch", e);
-                    }
-                }));
+                futures.add(
+                        executor.submit(
+                                () -> {
+                                    try {
+                                        T result = processor.processBatch(batch);
+                                        tracker.onBatchCompleted(batch.vectorCount);
+                                        return result;
+                                    } catch (Exception e) {
+                                        throw new RuntimeException("Failed to process batch", e);
+                                    }
+                                }));
             }
 
             // Collect results
@@ -176,12 +182,10 @@ public class VectorProcessor {
         }
     }
 
-    /**
-     * Process batches using multiple threads with default thread count
-     */
-    public static <T> List<T> processBatches(List<VectorBatch> batches,
-            BatchProcessor<T> processor,
-            String operationName) throws Exception {
+    /** Process batches using multiple threads with default thread count */
+    public static <T> List<T> processBatches(
+            List<VectorBatch> batches, BatchProcessor<T> processor, String operationName)
+            throws Exception {
         return processBatches(batches, processor, operationName, DEFAULT_THREAD_COUNT);
     }
 

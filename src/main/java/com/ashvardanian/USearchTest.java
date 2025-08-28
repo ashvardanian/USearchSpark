@@ -8,15 +8,16 @@ public class USearchTest {
             System.out.println("Testing USearch native library loading...");
 
             // Try to create a simple index to test native loading
-            Index index = new Index.Config()
-                    .metric(Index.Metric.COSINE)
-                    .quantization(Index.Quantization.FLOAT32)
-                    .dimensions(128)
-                    .capacity(1000)
-                    .connectivity(16)
-                    .expansion_add(128)
-                    .expansion_search(64)
-                    .build();
+            Index index =
+                    new Index.Config()
+                            .metric(Index.Metric.COSINE)
+                            .quantization(Index.Quantization.FLOAT32)
+                            .dimensions(128)
+                            .capacity(1000)
+                            .connectivity(16)
+                            .expansion_add(128)
+                            .expansion_search(64)
+                            .build();
 
             System.out.println("✅ USearch native library loaded successfully!");
 

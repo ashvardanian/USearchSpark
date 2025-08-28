@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,15 +70,19 @@ public class BenchmarkConfig {
 
     // Default benchmark parameters
     private int numQueries = 10000;
-    private int[] kValues = { 1, 10, 100 };
+    private int[] kValues = {1, 10, 100};
     private boolean includeIndexingTime = true;
     private boolean includeMemoryUsage = true;
     private long maxVectors = -1L; // -1 means use all vectors
     private int batchSize = 1024; // Default batch size for parallel processing
     private int numThreads = -1; // -1 means use hardware thread count
 
-    public BenchmarkConfig(String datasetName, String outputPath, BenchmarkMode mode,
-            List<Precision> precisions, Map<String, String> additionalConfig) {
+    public BenchmarkConfig(
+            String datasetName,
+            String outputPath,
+            BenchmarkMode mode,
+            List<Precision> precisions,
+            Map<String, String> additionalConfig) {
         this.datasetName = datasetName;
         this.outputPath = outputPath;
         this.mode = mode;
@@ -97,15 +100,15 @@ public class BenchmarkConfig {
         }
         if (additionalConfig.containsKey("kValues")) {
             String[] kValuesStr = additionalConfig.get("kValues").split(",");
-            this.kValues = Arrays.stream(kValuesStr)
-                    .mapToInt(Integer::parseInt)
-                    .toArray();
+            this.kValues = Arrays.stream(kValuesStr).mapToInt(Integer::parseInt).toArray();
         }
         if (additionalConfig.containsKey("includeIndexingTime")) {
-            this.includeIndexingTime = Boolean.parseBoolean(additionalConfig.get("includeIndexingTime"));
+            this.includeIndexingTime =
+                    Boolean.parseBoolean(additionalConfig.get("includeIndexingTime"));
         }
         if (additionalConfig.containsKey("includeMemoryUsage")) {
-            this.includeMemoryUsage = Boolean.parseBoolean(additionalConfig.get("includeMemoryUsage"));
+            this.includeMemoryUsage =
+                    Boolean.parseBoolean(additionalConfig.get("includeMemoryUsage"));
         }
         if (additionalConfig.containsKey("maxVectors")) {
             this.maxVectors = Long.parseLong(additionalConfig.get("maxVectors"));
@@ -126,7 +129,8 @@ public class BenchmarkConfig {
         String datasetName = args[0];
         BenchmarkMode mode = BenchmarkMode.LOCAL;
         String outputPath = "benchmark_results";
-        List<Precision> precisions = Arrays.asList(Precision.F32, Precision.F16, Precision.BF16, Precision.I8);
+        List<Precision> precisions =
+                Arrays.asList(Precision.F32, Precision.F16, Precision.BF16, Precision.I8);
         Map<String, String> additionalConfig = new HashMap<>();
 
         // Parse arguments
@@ -189,7 +193,9 @@ public class BenchmarkConfig {
     }
 
     public List<String> getPrecisionNames() {
-        return precisions.stream().map(Precision::getName).collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+        return precisions.stream()
+                .map(Precision::getName)
+                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
     public int getNumQueries() {

@@ -1,10 +1,8 @@
 package com.ashvardanian;
 
+import de.vandermeer.asciitable.AsciiTable;
 import java.util.List;
 import java.util.Map;
-
-import de.vandermeer.asciitable.AsciiTable;
-import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment;
 
 public class BenchmarkResultsTable {
 
@@ -31,30 +29,39 @@ public class BenchmarkResultsTable {
         perfTable.addRule();
 
         // Lucene first as requested
-        double luceneIps = luceneResult.getIndexingTimeMs() > 0
-                ? (luceneResult.getNumVectors() * 1000.0) / luceneResult.getIndexingTimeMs()
-                : 0;
-        String luceneQpsRange = String.format("%,.0f-%,.0f",
-                luceneResult.getThroughputQPS(), luceneResult.getPureSearchQPS());
-        perfTable.addRow("Lucene", "F32",
+        double luceneIps =
+                luceneResult.getIndexingTimeMs() > 0
+                        ? (luceneResult.getNumVectors() * 1000.0) / luceneResult.getIndexingTimeMs()
+                        : 0;
+        String luceneQpsRange =
+                String.format(
+                        "%,.0f-%,.0f",
+                        luceneResult.getThroughputQPS(), luceneResult.getPureSearchQPS());
+        perfTable.addRow(
+                "Lucene",
+                "F32",
                 String.format("%,.0f", luceneIps),
                 luceneQpsRange,
                 formatMemory(luceneResult.getMemoryUsageBytes()));
 
         // USearch results
-        List<BenchmarkConfig.Precision> precisions = List.of(
-                BenchmarkConfig.Precision.F32,
-                BenchmarkConfig.Precision.F16,
-                BenchmarkConfig.Precision.BF16,
-                BenchmarkConfig.Precision.I8);
+        List<BenchmarkConfig.Precision> precisions =
+                List.of(
+                        BenchmarkConfig.Precision.F32,
+                        BenchmarkConfig.Precision.F16,
+                        BenchmarkConfig.Precision.BF16,
+                        BenchmarkConfig.Precision.I8);
 
         for (BenchmarkConfig.Precision precision : precisions) {
             USearchBenchmark.BenchmarkResult result = usearchResults.get(precision);
             if (result != null) {
-                double ips = result.getIndexingTimeMs() > 0
-                        ? (result.getNumVectors() * 1000.0) / result.getIndexingTimeMs()
-                        : 0;
-                perfTable.addRow("USearch", precision.getName().toUpperCase(),
+                double ips =
+                        result.getIndexingTimeMs() > 0
+                                ? (result.getNumVectors() * 1000.0) / result.getIndexingTimeMs()
+                                : 0;
+                perfTable.addRow(
+                        "USearch",
+                        precision.getName().toUpperCase(),
                         String.format("%,.0f", ips),
                         String.format("%,.0f", result.getThroughputQPS()),
                         formatMemory(result.getMemoryUsageBytes()));
@@ -70,11 +77,14 @@ public class BenchmarkResultsTable {
         System.out.println("🎯 RECALL & NDCG METRICS");
         AsciiTable metricsTable = new AsciiTable();
         metricsTable.addRule();
-        metricsTable.addRow("Engine", "Precision", "Recall@10", "NDCG@10", "Recall@100", "NDCG@100");
+        metricsTable.addRow(
+                "Engine", "Precision", "Recall@10", "NDCG@10", "Recall@100", "NDCG@100");
         metricsTable.addRule();
 
         // Lucene first
-        metricsTable.addRow("Lucene", "F32",
+        metricsTable.addRow(
+                "Lucene",
+                "F32",
                 String.format("%.2f%%", luceneResult.getRecallAtK().get(10) * 100.0),
                 String.format("%.2f%%", luceneResult.getNDCGAtK().getOrDefault(10, 0.0) * 100.0),
                 String.format("%.2f%%", luceneResult.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
@@ -84,11 +94,15 @@ public class BenchmarkResultsTable {
         for (BenchmarkConfig.Precision precision : precisions) {
             USearchBenchmark.BenchmarkResult result = usearchResults.get(precision);
             if (result != null) {
-                metricsTable.addRow("USearch", precision.getName().toUpperCase(),
+                metricsTable.addRow(
+                        "USearch",
+                        precision.getName().toUpperCase(),
                         String.format("%.2f%%", result.getRecallAtK().get(10) * 100.0),
                         String.format("%.2f%%", result.getNDCGAtK().getOrDefault(10, 0.0) * 100.0),
-                        String.format("%.2f%%", result.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
-                        String.format("%.2f%%", result.getNDCGAtK().getOrDefault(100, 0.0) * 100.0));
+                        String.format(
+                                "%.2f%%", result.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
+                        String.format(
+                                "%.2f%%", result.getNDCGAtK().getOrDefault(100, 0.0) * 100.0));
             }
         }
 

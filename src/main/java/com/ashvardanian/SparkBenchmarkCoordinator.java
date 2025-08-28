@@ -1,5 +1,7 @@
 package com.ashvardanian;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -12,14 +14,10 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.util.LongAccumulator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 
 public class SparkBenchmarkCoordinator {
     private static final Logger logger = LoggerFactory.getLogger(SparkBenchmarkCoordinator.class);
@@ -28,11 +26,15 @@ public class SparkBenchmarkCoordinator {
         private final String datasetName;
         private final BenchmarkConfig.BenchmarkMode mode;
         private final long totalTimeMs;
-        private final Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults;
+        private final Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult>
+                usearchResults;
         private final LuceneBenchmark.BenchmarkResult luceneResult;
         private final long timestamp;
 
-        public BenchmarkResults(String datasetName, BenchmarkConfig.BenchmarkMode mode, long totalTimeMs,
+        public BenchmarkResults(
+                String datasetName,
+                BenchmarkConfig.BenchmarkMode mode,
+                long totalTimeMs,
                 Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
                 LuceneBenchmark.BenchmarkResult luceneResult) {
             this.datasetName = datasetName;
@@ -56,7 +58,8 @@ public class SparkBenchmarkCoordinator {
             return totalTimeMs;
         }
 
-        public Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> getUsearchResults() {
+        public Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult>
+                getUsearchResults() {
             return usearchResults;
         }
 
@@ -125,25 +128,25 @@ public class SparkBenchmarkCoordinator {
         return DatasetRegistry.loadDataset(config.getDatasetName());
     }
 
-    private BenchmarkResults runLocalBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset)
-            throws Exception {
+    private BenchmarkResults runLocalBenchmark(
+            BenchmarkConfig config, DatasetRegistry.Dataset dataset) throws Exception {
         logger.info("Running local benchmark");
 
         // Simple progress tracking without complex Spark operations
 
-        // Run USearch benchmarks (multithreaded)
+        // Run Lucene benchmark first (multithreaded)
         progressAccumulator.add(20);
-        USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
-        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = usearchBenchmark
-                .runBenchmarks();
-
-        progressAccumulator.add(40);
-
-        // Run Lucene benchmark (multithreaded)
         LuceneBenchmark luceneBenchmark = new LuceneBenchmark(config, dataset);
         LuceneBenchmark.BenchmarkResult luceneResult = luceneBenchmark.runBenchmark();
 
         progressAccumulator.add(30);
+
+        // Run USearch benchmarks (multithreaded) - will use custom precision order
+        USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
+        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults =
+                usearchBenchmark.runBenchmarks();
+
+        progressAccumulator.add(40);
 
         // Log results with clean output
         USearchBenchmark.logBenchmarkResults(usearchResults);
@@ -154,11 +157,7 @@ public class SparkBenchmarkCoordinator {
         // Results already logged above with clean output
 
         return new BenchmarkResults(
-                config.getDatasetName(),
-                config.getMode(),
-                totalTime,
-                usearchResults,
-                luceneResult);
+                config.getDatasetName(), config.getMode(), totalTime, usearchResults, luceneResult);
     }
 
     private void printBenchmarkComparison(
@@ -177,10 +176,12 @@ public class SparkBenchmarkCoordinator {
         ObjectMapper objectMapper = new ObjectMapper();
         ObjectWriter writer = objectMapper.writerWithDefaultPrettyPrinter();
 
-        String filename = String.format("benchmark_results_%s_%s_%d.json",
-                results.getDatasetName(),
-                results.getMode().getName(),
-                results.getTimestamp());
+        String filename =
+                String.format(
+                        "benchmark_results_%s_%s_%d.json",
+                        results.getDatasetName(),
+                        results.getMode().getName(),
+                        results.getTimestamp());
 
         Path resultsFile = outputPath.resolve(filename);
         writer.writeValue(resultsFile.toFile(), results);
@@ -205,11 +206,12 @@ public class SparkBenchmarkCoordinator {
             }
 
             // Write USearch results
-            for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry : results
-                    .getUsearchResults().entrySet()) {
+            for (Map.Entry<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> entry :
+                    results.getUsearchResults().entrySet()) {
 
                 USearchBenchmark.BenchmarkResult result = entry.getValue();
-                pw.printf("%d,%s,%s,USearch,%s,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
+                pw.printf(
+                        "%d,%s,%s,USearch,%s,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
                         results.getTimestamp(),
                         results.getDatasetName(),
                         results.getMode().getName(),
@@ -225,7 +227,8 @@ public class SparkBenchmarkCoordinator {
 
             // Write Lucene result
             LuceneBenchmark.BenchmarkResult luceneResult = results.getLuceneResult();
-            pw.printf("%d,%s,%s,Lucene,F32,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
+            pw.printf(
+                    "%d,%s,%s,Lucene,F32,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n",
                     results.getTimestamp(),
                     results.getDatasetName(),
                     results.getMode().getName(),
@@ -266,5 +269,4 @@ public class SparkBenchmarkCoordinator {
         }
         logger.info("Progress tracking stopped");
     }
-
 }
