@@ -90,6 +90,18 @@ public class LuceneBenchmark {
         // Limit number of queries for benchmarking
         int numQueries = Math.min(config.getNumQueries(), queryVectors.getRows());
 
+        // Try to load vector IDs for custom document IDs
+        BinaryVectorLoader.VectorIds vectorIds = null;
+        try {
+            String vectorIdsPath = dataset.getVectorIdsPath();
+            if (vectorIdsPath != null && !vectorIdsPath.isEmpty()) {
+                vectorIds = BinaryVectorLoader.loadVectorIds(vectorIdsPath);
+                logger.info("Using custom document IDs from vector ID mapping");
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load vector IDs for indexing: {}", e.getMessage());
+        }
+
         // Create in-memory directory for index
         Directory directory = new ByteBuffersDirectory();
 
@@ -165,14 +177,8 @@ public class LuceneBenchmark {
             System.arraycopy(batch.vectors, i * batch.dimensions, vector, 0, batch.dimensions);
 
             Document document = new Document();
-
-            // Add ID field
             document.add(new StoredField("id", key));
-            document.add(new StringField("id", String.valueOf(key), Field.Store.YES));
-
-            // Add vector field with HNSW
             document.add(new KnnFloatVectorField(vectorFieldName, vector));
-
             documents.add(document);
         }
 
@@ -237,17 +243,14 @@ public class LuceneBenchmark {
                         // Calculate recall using ground truth if available
                         double queryRecall;
                         if (finalGroundTruth != null && globalQueryIndex < finalGroundTruth.getNumQueries()) {
-                            // Extract document IDs from TopDocs and map through vector IDs if available
+                            // Extract stored document IDs from search results
                             int[] intResults = new int[topDocs.scoreDocs.length];
                             for (int j = 0; j < topDocs.scoreDocs.length; j++) {
-                                int docId = topDocs.scoreDocs[j].doc; // Lucene document ID
-                                // For Lucene, document IDs map directly to vector indices
-                                // Then map through vector IDs if available (for subset support)
-                                if (finalVectorIds != null && docId < finalVectorIds.getNumVectors()) {
-                                    intResults[j] = finalVectorIds.getId(docId);
-                                } else {
-                                    intResults[j] = docId;
-                                }
+                                int luceneDocId = topDocs.scoreDocs[j].doc;
+                                // Retrieve the stored ID field - this is our consistent [0,N) key
+                                org.apache.lucene.document.Document doc = indexSearcher.storedFields().document(luceneDocId);
+                                long storedId = doc.getField("id").numericValue().longValue();
+                                intResults[j] = (int) storedId;
                             }
                             queryRecall = BinaryVectorLoader.calculateRecallAtK(finalGroundTruth, globalQueryIndex, intResults, k);
                         } else {
