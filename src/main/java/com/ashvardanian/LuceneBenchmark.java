@@ -190,8 +190,7 @@ public class LuceneBenchmark {
 
         ProgressLogger indexProgress = new ProgressLogger("Indexing F32", numBaseVectors);
 
-        // Parallel indexing with clean work partitioning - IndexWriter.addDocument() is
-        // thread-safe
+        // Parallel indexing with clean work partitioning
         if (numThreads == 1) {
             // Single-threaded indexing
             float[] vectorBuffer = new float[baseVectors.getCols()];

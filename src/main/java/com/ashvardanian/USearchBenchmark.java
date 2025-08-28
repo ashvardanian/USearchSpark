@@ -180,28 +180,28 @@ public class USearchBenchmark {
 
         // Set precision-specific quantization
         String quantization;
-        boolean useByteData;
         switch (precision) {
             case F32:
                 quantization = Index.Quantization.FLOAT32;
-                useByteData = false;
                 break;
             case F16:
                 quantization = Index.Quantization.FLOAT16;
-                useByteData = false;
                 break;
             case BF16:
                 quantization = Index.Quantization.BFLOAT16;
-                useByteData = false;
                 break;
             case I8:
                 quantization = Index.Quantization.INT8;
-                useByteData = true;
                 break;
             default:
                 quantization = Index.Quantization.FLOAT32;
-                useByteData = false;
         }
+
+        // Determine input format based on dataset, NOT quantization
+        BinaryVectorLoader.VectorType vectorType = baseVectors.getType();
+        boolean useByteData = vectorType == BinaryVectorLoader.VectorType.INT8 ||
+                vectorType == BinaryVectorLoader.VectorType.UINT8 ||
+                vectorType == BinaryVectorLoader.VectorType.UINT8_BIN;
 
         System.out.println(String.format("🔧 Creating USearch index: %,d vectors, %d dims, %s metric, %s precision",
                 numBaseVectors, baseVectors.getCols(), usearchMetric, quantization));
