@@ -107,16 +107,17 @@ public class LuceneBenchmark {
     public BenchmarkResult runBenchmark() throws Exception {
         System.out.println("\n🔍 Starting Lucene HNSW benchmark for dataset: " + dataset.getDefinition().getName());
 
-        // Load base vectors and queries
+        // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors... ");
-        BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath());
+        int maxBaseVectors = config.getMaxVectors() > 0 ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
+                : -1;
+        BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
+                maxBaseVectors);
         BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
         System.out.println("✅ Done");
 
-        // Limit number of base vectors if specified
         int numBaseVectors = baseVectors.getRows();
-        if (config.getMaxVectors() > 0 && config.getMaxVectors() < baseVectors.getRows()) {
-            numBaseVectors = (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE);
+        if (maxBaseVectors > 0) {
             System.out.println(
                     "🔢 Limiting base vectors to " + String.format("%,d", numBaseVectors) + " for faster testing");
         }

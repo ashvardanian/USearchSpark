@@ -2,6 +2,7 @@ package com.ashvardanian;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -62,13 +63,23 @@ public class BinaryVectorLoader {
         private final int rows;
         private final int cols;
         private final VectorType type;
-        private final ByteBuffer data;
+        private final ByteBuffer[] segments; // Multiple segments for large files
+        private final int startRow;
+        private final long segmentSize;
 
-        public VectorDataset(int rows, int cols, VectorType type, ByteBuffer data) {
+        public VectorDataset(int rows, int cols, VectorType type, ByteBuffer[] segments, int startRow,
+                long segmentSize) {
             this.rows = rows;
             this.cols = cols;
             this.type = type;
-            this.data = data;
+            this.segments = segments;
+            this.startRow = startRow;
+            this.segmentSize = segmentSize;
+        }
+
+        // Backward compatibility constructor for single segment
+        public VectorDataset(int rows, int cols, VectorType type, ByteBuffer data, int startRow) {
+            this(rows, cols, type, new ByteBuffer[] { data }, startRow, data.remaining());
         }
 
         public int getRows() {
@@ -84,7 +95,8 @@ public class BinaryVectorLoader {
         }
 
         public ByteBuffer getData() {
-            return data;
+            // Return first segment for backward compatibility
+            return segments.length > 0 ? segments[0] : null;
         }
 
         public float[] getVectorAsFloat(int index) {
@@ -93,38 +105,38 @@ public class BinaryVectorLoader {
             }
 
             float[] result = new float[cols];
-            int offset = index * cols * type.getByteSize();
+            long offset = (long) index * cols * type.getByteSize();
 
             switch (type) {
                 case FLOAT32:
                     for (int i = 0; i < cols; i++) {
-                        result[i] = data.getFloat(offset + i * Float.BYTES);
+                        result[i] = getFloat(offset + i * Float.BYTES);
                     }
                     break;
                 case FLOAT64:
                     for (int i = 0; i < cols; i++) {
-                        result[i] = (float) data.getDouble(offset + i * Double.BYTES);
+                        result[i] = (float) getDouble(offset + i * Double.BYTES);
                     }
                     break;
                 case INT32:
                     for (int i = 0; i < cols; i++) {
-                        result[i] = (float) data.getInt(offset + i * Integer.BYTES);
+                        result[i] = (float) getInt(offset + i * Integer.BYTES);
                     }
                     break;
                 case INT8:
                     for (int i = 0; i < cols; i++) {
-                        result[i] = (float) data.get(offset + i); // Signed byte
+                        result[i] = (float) getByte(offset + i); // Signed byte
                     }
                     break;
                 case UINT8:
                 case UINT8_BIN:
                     for (int i = 0; i < cols; i++) {
-                        result[i] = (float) (data.get(offset + i) & 0xFF); // Unsigned byte
+                        result[i] = (float) (getByte(offset + i) & 0xFF); // Unsigned byte
                     }
                     break;
                 case FLOAT16:
                     for (int i = 0; i < cols; i++) {
-                        short halfFloat = data.getShort(offset + i * 2);
+                        short halfFloat = getShort(offset + i * 2);
                         result[i] = halfFloatToFloat(halfFloat);
                     }
                     break;
@@ -135,24 +147,99 @@ public class BinaryVectorLoader {
             return result;
         }
 
+        // Helper methods to handle long offsets across multiple memory-mapped segments
+        // This approach handles files larger than 2GB by splitting them into multiple
+        // segments
+        // Reference:
+        // https://blog.vanillajava.blog/2011/12/using-memory-mapped-file-for-huge.html
+        private float getFloat(long offset) {
+            int segmentIndex = (int) (offset / segmentSize);
+            int segmentOffset = (int) (offset % segmentSize);
+
+            if (segmentIndex >= segments.length) {
+                throw new IllegalArgumentException("Offset beyond mapped segments: " + offset);
+            }
+            if (segmentOffset > segments[segmentIndex].limit() - Float.BYTES) {
+                throw new IllegalArgumentException("Float read would exceed segment boundary");
+            }
+
+            return segments[segmentIndex].getFloat(segmentOffset);
+        }
+
+        private double getDouble(long offset) {
+            int segmentIndex = (int) (offset / segmentSize);
+            int segmentOffset = (int) (offset % segmentSize);
+
+            if (segmentIndex >= segments.length) {
+                throw new IllegalArgumentException("Offset beyond mapped segments: " + offset);
+            }
+            if (segmentOffset > segments[segmentIndex].limit() - Double.BYTES) {
+                throw new IllegalArgumentException("Double read would exceed segment boundary");
+            }
+
+            return segments[segmentIndex].getDouble(segmentOffset);
+        }
+
+        private int getInt(long offset) {
+            int segmentIndex = (int) (offset / segmentSize);
+            int segmentOffset = (int) (offset % segmentSize);
+
+            if (segmentIndex >= segments.length) {
+                throw new IllegalArgumentException("Offset beyond mapped segments: " + offset);
+            }
+            if (segmentOffset > segments[segmentIndex].limit() - Integer.BYTES) {
+                throw new IllegalArgumentException("Int read would exceed segment boundary");
+            }
+
+            return segments[segmentIndex].getInt(segmentOffset);
+        }
+
+        private byte getByte(long offset) {
+            int segmentIndex = (int) (offset / segmentSize);
+            int segmentOffset = (int) (offset % segmentSize);
+
+            if (segmentIndex >= segments.length) {
+                throw new IllegalArgumentException("Offset beyond mapped segments: " + offset);
+            }
+            if (segmentOffset >= segments[segmentIndex].limit()) {
+                throw new IllegalArgumentException("Byte read would exceed segment boundary");
+            }
+
+            return segments[segmentIndex].get(segmentOffset);
+        }
+
+        private short getShort(long offset) {
+            int segmentIndex = (int) (offset / segmentSize);
+            int segmentOffset = (int) (offset % segmentSize);
+
+            if (segmentIndex >= segments.length) {
+                throw new IllegalArgumentException("Offset beyond mapped segments: " + offset);
+            }
+            if (segmentOffset > segments[segmentIndex].limit() - Short.BYTES) {
+                throw new IllegalArgumentException("Short read would exceed segment boundary");
+            }
+
+            return segments[segmentIndex].getShort(segmentOffset);
+        }
+
         public byte[] getVectorAsByte(int index) {
             if (index >= rows) {
                 throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
             }
 
             byte[] result = new byte[cols];
-            int offset = index * cols * type.getByteSize();
+            long offset = (long) index * cols * type.getByteSize();
 
             switch (type) {
                 case INT8:
                     for (int i = 0; i < cols; i++) {
-                        result[i] = data.get(offset + i);
+                        result[i] = getByte(offset + i);
                     }
                     break;
                 case FLOAT32:
                     // Convert float to byte for I8 quantization
                     for (int i = 0; i < cols; i++) {
-                        float value = data.getFloat(offset + i * Float.BYTES);
+                        float value = getFloat(offset + i * Float.BYTES);
                         result[i] = (byte) Math.round(value * 127.0f);
                     }
                     break;
@@ -212,14 +299,49 @@ public class BinaryVectorLoader {
             long startOffset = 8 + (long) startRow * cols * type.getByteSize();
             long readSize = (long) actualRows * cols * type.getByteSize();
 
-            // Read vector data
-            channel.position(startOffset);
-            ByteBuffer data = ByteBuffer.allocate((int) readSize).order(ByteOrder.LITTLE_ENDIAN);
-            channel.read(data);
-            data.flip();
+            // Handle large files using multiple memory-mapped segments
+            // Java's FileChannel.map() has a 2GB (Integer.MAX_VALUE) limit per mapping
+            // For larger files, we create multiple segments as described in:
+            // https://blog.vanillajava.blog/2011/12/using-memory-mapped-file-for-huge.html
 
-            logger.debug("Loaded {} vectors starting from row {}", actualRows, startRow);
-            return new VectorDataset(actualRows, cols, type, data);
+            final long maxSegmentSize = Integer.MAX_VALUE - 1024; // Leave some buffer
+            ByteBuffer[] segments;
+            long segmentSize;
+
+            if (readSize > maxSegmentSize) {
+                // Calculate number of segments needed
+                int numSegments = (int) Math.ceil((double) readSize / maxSegmentSize);
+                segments = new ByteBuffer[numSegments];
+                segmentSize = maxSegmentSize;
+
+                logger.info("Large file detected ({} GB). Creating {} memory-mapped segments of {} MB each",
+                        String.format("%.1f", readSize / (1024 * 1024 * 1024.0)),
+                        numSegments,
+                        String.format("%.0f", maxSegmentSize / (1024 * 1024.0)));
+
+                // Create multiple memory-mapped segments
+                for (int i = 0; i < numSegments; i++) {
+                    long segmentOffset = startOffset + (i * maxSegmentSize);
+                    long currentSegmentSize = Math.min(maxSegmentSize, readSize - (i * maxSegmentSize));
+
+                    MappedByteBuffer segment = channel.map(FileChannel.MapMode.READ_ONLY, segmentOffset,
+                            currentSegmentSize);
+                    segment.order(ByteOrder.LITTLE_ENDIAN);
+                    segments[i] = segment;
+                }
+            } else {
+                // Single segment for files under 2GB
+                segments = new ByteBuffer[1];
+                segmentSize = readSize;
+
+                MappedByteBuffer segment = channel.map(FileChannel.MapMode.READ_ONLY, startOffset, readSize);
+                segment.order(ByteOrder.LITTLE_ENDIAN);
+                segments[0] = segment;
+            }
+
+            logger.debug("Loaded {} vectors starting from row {} using {} segment(s)",
+                    actualRows, startRow, segments.length);
+            return new VectorDataset(actualRows, cols, type, segments, startRow, segmentSize);
         }
     }
 
