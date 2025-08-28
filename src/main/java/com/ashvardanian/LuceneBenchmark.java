@@ -12,10 +12,12 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StoredField;
+import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
@@ -33,31 +35,43 @@ public class LuceneBenchmark {
     public static class SearchMetrics {
         public final Map<Integer, Double> recallAtK;
         public final Map<Integer, Double> ndcgAtK;
-        public final long searchTimeMs;
+        public final long pureSearchTimeMs;
+        public final long idRetrievalTimeMs;
+        public final long totalSearchTimeMs;
 
-        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long searchTimeMs) {
+        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK,
+                long pureSearchTimeMs, long idRetrievalTimeMs) {
             this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
             this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
-            this.searchTimeMs = searchTimeMs;
+            this.pureSearchTimeMs = pureSearchTimeMs;
+            this.idRetrievalTimeMs = idRetrievalTimeMs;
+            this.totalSearchTimeMs = pureSearchTimeMs + idRetrievalTimeMs;
         }
     }
 
     public static class BenchmarkResult {
         private final long indexingTimeMs;
         private final long searchTimeMs;
+        private final long pureSearchTimeMs;
+        private final long idRetrievalTimeMs;
         private final double throughputQPS;
+        private final double pureSearchQPS;
         private final Map<Integer, Double> recallAtK;
         private final Map<Integer, Double> ndcgAtK;
         private final long memoryUsageBytes;
         private final int numVectors;
         private final int dimensions;
 
-        public BenchmarkResult(long indexingTimeMs, long searchTimeMs, double throughputQPS,
-                Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long memoryUsageBytes,
-                int numVectors, int dimensions) {
+        public BenchmarkResult(long indexingTimeMs, long searchTimeMs, long pureSearchTimeMs, long idRetrievalTimeMs,
+                double throughputQPS, double pureSearchQPS, Map<Integer, Double> recallAtK,
+                Map<Integer, Double> ndcgAtK,
+                long memoryUsageBytes, int numVectors, int dimensions) {
             this.indexingTimeMs = indexingTimeMs;
             this.searchTimeMs = searchTimeMs;
+            this.pureSearchTimeMs = pureSearchTimeMs;
+            this.idRetrievalTimeMs = idRetrievalTimeMs;
             this.throughputQPS = throughputQPS;
+            this.pureSearchQPS = pureSearchQPS;
             this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
             this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
             this.memoryUsageBytes = memoryUsageBytes;
@@ -76,6 +90,18 @@ public class LuceneBenchmark {
 
         public double getThroughputQPS() {
             return throughputQPS;
+        }
+
+        public double getPureSearchQPS() {
+            return pureSearchQPS;
+        }
+
+        public long getPureSearchTimeMs() {
+            return pureSearchTimeMs;
+        }
+
+        public long getIdRetrievalTimeMs() {
+            return idRetrievalTimeMs;
         }
 
         public double getThroughputIPS() {
@@ -135,17 +161,8 @@ public class LuceneBenchmark {
         // Limit number of queries for benchmarking
         int numQueries = Math.min(config.getNumQueries(), queryVectors.getRows());
 
-        // Try to load vector IDs for custom document IDs
-        BinaryVectorLoader.VectorIds vectorIds = null;
-        try {
-            String vectorIdsPath = dataset.getVectorIdsPath();
-            if (vectorIdsPath != null && !vectorIdsPath.isEmpty()) {
-                vectorIds = BinaryVectorLoader.loadVectorIds(vectorIdsPath);
-                logger.info("Using custom document IDs from vector ID mapping");
-            }
-        } catch (Exception e) {
-            logger.warn("Could not load vector IDs for indexing: {}", e.getMessage());
-        }
+        // Load vector IDs once for consistent ID mapping during indexing
+        final BinaryVectorLoader.VectorIds vectorIds = loadVectorIds();
 
         // Create in-memory directory for index
         Directory directory = new ByteBuffersDirectory();
@@ -165,8 +182,7 @@ public class LuceneBenchmark {
         long memoryBefore = getMemoryUsage();
 
         // Parallel indexing with thread-safe IndexWriter
-        int numThreads = Math.min(java.util.concurrent.ForkJoinPool.commonPool().getParallelism(),
-                Math.max(1, numBaseVectors / 1000));
+        int numThreads = java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
         System.out.println("🧵 Using " + numThreads + " threads for Lucene indexing (" +
                 java.util.concurrent.ForkJoinPool.commonPool().getParallelism() + " available)");
 
@@ -177,13 +193,17 @@ public class LuceneBenchmark {
             try {
                 // Each thread needs its own buffer to avoid race conditions
                 float[] vectorBuffer = new float[baseVectors.getCols()];
-                long key = i; // Use index as document ID
                 baseVectors.getVectorAsFloat(i, vectorBuffer);
 
+                // Store the final ID directly - no conversion needed during search
+                long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
+                        ? vectorIds.getId(i)
+                        : i;
+
                 Document document = new Document();
-                document.add(new StoredField("id", key));
-                document.add(new KnnFloatVectorField("vector", vectorBuffer)); // No clone needed - buffer is per-thread
-                indexWriter.addDocument(document); // Thread-safe operation
+                document.add(new StoredField("id", finalId));
+                document.add(new KnnFloatVectorField("vector", vectorBuffer));
+                indexWriter.addDocument(document);
 
                 indexProgress.increment();
             } catch (Exception e) {
@@ -208,24 +228,31 @@ public class LuceneBenchmark {
         SearchMetrics searchMetrics = calculateSearchMetrics(indexSearcher, queryVectors, numQueries,
                 config.getKValues());
 
-        // Use the actual search time from metrics (excludes accuracy calculation)
-        long searchTime = searchMetrics.searchTimeMs;
+        // Use the total search time (includes ID retrieval for realistic benchmarking)
+        long searchTime = searchMetrics.totalSearchTimeMs;
 
-        // Calculate throughput based on actual search time
+        // Calculate throughput based on total search time (realistic)
         double throughputQPS = numQueries / (searchTime / 1000.0);
+
+        // Also calculate pure search QPS (theoretical maximum)
+        double pureSearchQPS = numQueries / (searchMetrics.pureSearchTimeMs / 1000.0);
 
         // Cleanup
         indexReader.close();
         directory.close();
 
         System.out.println(String.format(
-                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Search: %,dms, Throughput: %,.0f QPS",
-                indexingTime, searchTime, throughputQPS));
+                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Pure Search: %,dms (%,.0f QPS), +ID Retrieval: %,dms (%,.0f QPS)",
+                indexingTime, searchMetrics.pureSearchTimeMs, pureSearchQPS, searchMetrics.idRetrievalTimeMs,
+                throughputQPS));
 
         return new BenchmarkResult(
                 indexingTime,
                 searchTime,
+                searchMetrics.pureSearchTimeMs,
+                searchMetrics.idRetrievalTimeMs,
                 throughputQPS,
+                pureSearchQPS,
                 searchMetrics.recallAtK,
                 searchMetrics.ndcgAtK,
                 memoryUsage,
@@ -259,131 +286,115 @@ public class LuceneBenchmark {
             int numQueries, int[] kValues) throws Exception {
         String vectorFieldName = "vector";
 
-        // Try to load ground truth if available
-        BinaryVectorLoader.GroundTruth groundTruth = null;
-        try {
-            String groundTruthPath = dataset.getGroundTruthPath();
-            if (groundTruthPath != null && !groundTruthPath.isEmpty()) {
-                groundTruth = BinaryVectorLoader.loadGroundTruth(groundTruthPath);
-                logger.info("Using ground truth for accurate recall calculation");
-            }
-        } catch (Exception e) {
-            logger.warn("Could not load ground truth, using simplified recall calculation: {}", e.getMessage());
-        }
-
-        // Try to load vector IDs if available
-        BinaryVectorLoader.VectorIds vectorIds = null;
-        try {
-            String vectorIdsPath = dataset.getVectorIdsPath();
-            if (vectorIdsPath != null && !vectorIdsPath.isEmpty()) {
-                vectorIds = BinaryVectorLoader.loadVectorIds(vectorIdsPath);
-                logger.info("Using vector ID mapping for subset support");
-            }
-        } catch (Exception e) {
-            logger.warn("Could not load vector IDs: {}", e.getMessage());
-        }
+        // IDs are already mapped during indexing - no conversion needed
 
         // Pre-allocate result arrays to avoid allocation overhead during timing
-        TopDocs[] allSearchResults = new TopDocs[numQueries];
+        long[][] allSearchResults = new long[numQueries][];
 
         // Find maximum K value for single search optimization
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // Determine optimal thread count for search (same logic as USearch)
-        int searchThreads = Math.min(java.util.concurrent.ForkJoinPool.commonPool().getParallelism() / 2,
-                Math.max(1, numQueries / 500));
-        System.out.println("🔍 Using " + searchThreads + " threads for search");
+        // Use all available threads for search
+        int numThreads = java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        System.out.println("🔍 Using " + numThreads + " threads for search");
 
-        ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
-        long startSearch = System.currentTimeMillis();
+        // Phase 1: Pure HNSW search (no ID retrieval)
+        ProgressLogger pureSearchProgress = new ProgressLogger("Pure search k=" + maxK, numQueries);
+        TopDocs[] pureSearchResults = new TopDocs[numQueries];
 
-        if (searchThreads == 1) {
-            // Single-threaded fallback - reuse buffer
+        long startPureSearch = System.currentTimeMillis();
+        if (numThreads == 1) {
             float[] queryBuffer = new float[queryVectors.getCols()];
             for (int i = 0; i < numQueries; i++) {
                 queryVectors.getVectorAsFloat(i, queryBuffer);
                 KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
-                allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
-                searchProgress.increment();
+                pureSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
+                pureSearchProgress.increment();
             }
         } else {
             // Multi-threaded search with pre-allocated thread-local buffers
             final int bufferSize = queryVectors.getCols();
-            final float[][] threadBuffers = new float[searchThreads][bufferSize];
-            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(0);
-            
+            final float[][] threadBuffers = new float[numThreads][bufferSize];
+            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(
+                    0);
+
             java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
                 try {
                     // Each thread gets its own buffer slice
-                    int threadId = threadCounter.getAndIncrement() % searchThreads;
+                    int threadId = threadCounter.getAndIncrement() % numThreads;
                     float[] queryBuffer = threadBuffers[threadId];
                     queryVectors.getVectorAsFloat(i, queryBuffer);
 
-                    // Perform HNSW search with maximum K
                     KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
-                    allSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
-
-                    searchProgress.increment();
+                    pureSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
+                    pureSearchProgress.increment();
                 } catch (Exception e) {
-                    throw new RuntimeException("Search failed for query " + i, e);
+                    throw new RuntimeException("Pure search failed for query " + i, e);
                 }
             });
         }
-        long searchTime = System.currentTimeMillis() - startSearch;
-        searchProgress.complete(numQueries);
+        long pureSearchTime = System.currentTimeMillis() - startPureSearch;
+        pureSearchProgress.complete(numQueries);
 
-        // ACCURACY CALCULATION for all K values from single search results (after
-        // timing)
+        // Phase 2: ID retrieval from search results
+        ProgressLogger idRetrievalProgress = new ProgressLogger("ID retrieval k=" + maxK, numQueries);
+        long startIdRetrieval = System.currentTimeMillis();
+
+        if (numThreads == 1) {
+            for (int i = 0; i < numQueries; i++) {
+                allSearchResults[i] = extractDocumentIds(pureSearchResults[i], maxK, indexSearcher);
+                idRetrievalProgress.increment();
+            }
+        } else {
+            java.util.stream.IntStream.range(0, numQueries).parallel().forEach(i -> {
+                try {
+                    allSearchResults[i] = extractDocumentIds(pureSearchResults[i], maxK, indexSearcher);
+                    idRetrievalProgress.increment();
+                } catch (Exception e) {
+                    throw new RuntimeException("ID retrieval failed for query " + i, e);
+                }
+            });
+        }
+        long idRetrievalTime = System.currentTimeMillis() - startIdRetrieval;
+        idRetrievalProgress.complete(numQueries);
+
         System.out.println("📊 Calculating accuracy metrics...");
 
-        // Initialize result maps for all K values
+        BinaryVectorLoader.GroundTruth groundTruth = loadGroundTruth();
         Map<Integer, Double> recallResults = new HashMap<>();
         Map<Integer, Double> ndcgResults = new HashMap<>();
 
-        try {
-            for (int k : kValues) {
-                double totalRecall = 0.0;
-                double totalNdcg = 0.0;
+        for (int k : kValues) {
+            double totalRecall = 0.0;
+            double totalNdcg = 0.0;
 
-                for (int i = 0; i < numQueries; i++) {
-                    TopDocs topDocs = allSearchResults[i];
+            for (int i = 0; i < numQueries; i++) {
+                long[] docIds = allSearchResults[i];
 
-                    // Truncate results to current K (prefix of the max-K search results)
-                    int actualK = Math.min(k, topDocs.scoreDocs.length);
+                // Truncate results to current K (prefix of the max-K search results)
+                int actualK = Math.min(k, docIds.length);
+                int[] resultsAtK = safeConvertToIntArray(docIds, actualK);
 
-                    // Calculate recall using ground truth if available
-                    double queryRecall;
-                    double queryNdcg = 0.0;
-                    if (groundTruth != null && i < groundTruth.getNumQueries()) {
-                        // Extract stored document IDs from search results (only first actualK)
-                        int[] intResults = new int[actualK];
-                        for (int j = 0; j < actualK; j++) {
-                            int luceneDocId = topDocs.scoreDocs[j].doc;
-                            // Retrieve the stored ID field - this is our consistent [0,N) key
-                            org.apache.lucene.document.Document doc = indexSearcher.storedFields()
-                                    .document(luceneDocId);
-                            long storedId = doc.getField("id").numericValue().longValue();
-                            intResults[j] = (int) storedId;
-                        }
-                        queryRecall = BinaryVectorLoader.calculateRecallAtK(groundTruth, i, intResults, k);
-                        queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, intResults, k);
-                    } else {
-                        // Simplified recall calculation (no NDCG without ground truth)
-                        queryRecall = Math.min(1.0, (double) actualK / k);
-                    }
-
-                    totalRecall += queryRecall;
-                    totalNdcg += queryNdcg;
+                // Calculate recall using ground truth if available
+                double queryRecall;
+                double queryNdcg = 0.0;
+                if (groundTruth != null && i < groundTruth.getNumQueries()) {
+                    queryRecall = BinaryVectorLoader.calculateRecallAtK(groundTruth, i, resultsAtK, k);
+                    queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, resultsAtK, k);
+                } else {
+                    // Simplified recall calculation (no NDCG without ground truth)
+                    queryRecall = Math.min(1.0, (double) actualK / k);
                 }
 
-                recallResults.put(k, totalRecall / numQueries);
-                ndcgResults.put(k, totalNdcg / numQueries);
+                totalRecall += queryRecall;
+                totalNdcg += queryNdcg;
             }
-        } catch (IOException e) {
-            throw new RuntimeException("Accuracy calculation failed", e);
+
+            recallResults.put(k, totalRecall / numQueries);
+            ndcgResults.put(k, totalNdcg / numQueries);
         }
 
-        return new SearchMetrics(recallResults, ndcgResults, searchTime);
+        return new SearchMetrics(recallResults, ndcgResults, pureSearchTime, idRetrievalTime);
     }
 
     private long getMemoryUsage() {
@@ -403,13 +414,70 @@ public class LuceneBenchmark {
         return runtime.totalMemory() - runtime.freeMemory();
     }
 
+    // Clean helper methods for better separation of concerns
+
+    private BinaryVectorLoader.VectorIds loadVectorIds() {
+        try {
+            String vectorIdsPath = dataset.getVectorIdsPath();
+            if (vectorIdsPath != null && !vectorIdsPath.isEmpty()) {
+                logger.info("Using vector ID mapping for subset support");
+                return BinaryVectorLoader.loadVectorIds(vectorIdsPath);
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load vector IDs: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private BinaryVectorLoader.GroundTruth loadGroundTruth() {
+        try {
+            String groundTruthPath = dataset.getGroundTruthPath();
+            if (groundTruthPath != null && !groundTruthPath.isEmpty()) {
+                logger.info("Using ground truth for accurate recall calculation");
+                return BinaryVectorLoader.loadGroundTruth(groundTruthPath);
+            }
+        } catch (Exception e) {
+            logger.warn("Could not load ground truth, using simplified recall calculation: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private int[] safeConvertToIntArray(long[] longArray, int length) {
+        int[] intArray = new int[length];
+        for (int i = 0; i < length; i++) {
+            long value = longArray[i];
+            if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+                throw new IllegalArgumentException(
+                        "Vector ID " + value + " cannot be safely converted to int at index " + i);
+            }
+            intArray[i] = (int) value;
+        }
+        return intArray;
+    }
+
+    private long[] extractDocumentIds(TopDocs topDocs, int maxK, IndexSearcher indexSearcher) throws IOException {
+        int actualK = Math.min(maxK, topDocs.scoreDocs.length);
+        long[] docIds = new long[actualK];
+
+        for (int j = 0; j < actualK; j++) {
+            int luceneDocId = topDocs.scoreDocs[j].doc;
+            org.apache.lucene.document.Document doc = indexSearcher.storedFields().document(luceneDocId);
+            docIds[j] = doc.getField("id").numericValue().longValue();
+        }
+        return docIds;
+    }
+
     public static void logBenchmarkResults(BenchmarkResult result) {
         System.out.println("=== Lucene HNSW Benchmark Results ===");
         System.out.println("Precision: F32 (baseline)");
         System.out.println(String.format("  Indexing Time: %,d ms", result.getIndexingTimeMs()));
-        System.out.println(String.format("  Search Time: %,d ms", result.getSearchTimeMs()));
+        System.out.println(String.format("  Pure Search Time: %,d ms", result.getPureSearchTimeMs()));
+        System.out.println(String.format("  ID Retrieval Time: %,d ms", result.getIdRetrievalTimeMs()));
+        System.out.println(String.format("  Total Search Time: %,d ms", result.getSearchTimeMs()));
         System.out.println(String.format("  Indexing Throughput: %,.0f IPS", result.getThroughputIPS()));
-        System.out.println(String.format("  Search Throughput: %,.0f QPS", result.getThroughputQPS()));
+        System.out.println(String.format("  Pure Search Throughput: %,.0f QPS", result.getPureSearchQPS()));
+        System.out
+                .println(String.format("  Total Search Throughput: %,.0f QPS (realistic)", result.getThroughputQPS()));
         System.out.println(
                 String.format("  Memory Usage: %,d MB", Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 

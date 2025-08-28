@@ -1,6 +1,6 @@
 # USearchSpark
 
-Vector Search benchmark comparing [USearch](https://github.com/unum-cloud/usearch) HNSW across precisions (`f32`, `f16`, `bf16`, `i8`) vs [Lucene](https://github.com/apache/lucene) HNSW (`f32`) baseline, leveraging Apache [Spark](https://github.com/apache/spark) for distributed indexing and search.
+Vector Search benchmark comparing [USearch](https://github.com/unum-cloud/usearch) HNSW across precisions (`f32`, `f16`, `bf16`, `i8`) vs [Lucene](https://github.com/apache/lucene) in-memory HNSW (`f32`) baseline, leveraging Apache [Spark](https://github.com/apache/spark) for distributed indexing and search.
 
 ## Quick Start
 
@@ -27,28 +27,27 @@ Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki d
 ┌──────────────┬──────────────┬──────────────┬──────────────┬─────────────┐
 │ Engine       │ Precision    │ IPS          │ QPS          │ Memory      │
 ├──────────────┼──────────────┼──────────────┼──────────────┼─────────────┤
-│ Apache       │ F32          │ 74,555       │ 383          │ 65 MB       │
-│ USearch      │ F32          │ 69,046       │ 6,983        │ -47 MB      │
-│ USearch      │ F16          │ 67,159       │ 7,831        │ 0 MB        │
-│ USearch      │ BF16         │ 65,569       │ 7,491        │ 1 MB        │
-│ USearch      │ I8           │ 100,472      │ 11,723       │ 0 MB        │
+│ Lucene       │ F32          │ 13,719       │ 2,601        │ 962 MB      │
+│ USearch      │ F32          │ 110,779      │ 123,457      │ 1.3 GB      │
+│ USearch      │ F16          │ 133,032      │ 142,857      │ 724 MB      │
+│ USearch      │ BF16         │ 133,422      │ 156,250      │ 756 MB      │
+│ USearch      │ I8           │ 173,340      │ 200,000      │ 500 MB      │
 └──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
 🎯 RECALL & NDCG METRICS
 ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
 │ Engine      │ Precision   │ Recall@10   │ NDCG@10     │ Recall@100  │ NDCG@100    │
 ├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
-│ Apache      │ F32         │ 0.0990      │ 0.1876      │ 0.1004      │ 0.1876      │
-│ USearch     │ F32         │ 0.0991      │ 0.1877      │ 0.1007      │ 0.1877      │
-│ USearch     │ F16         │ 0.0991      │ 0.1876      │ 0.1007      │ 0.1876      │
-│ USearch     │ BF16        │ 0.0993      │ 0.1861      │ 0.1009      │ 0.1861      │
-│ USearch     │ I8          │ 0.0974      │ 0.1676      │ 0.1005      │ 0.1676      │
+│ Lucene      │ F32         │ 91.18%      │ 92.95%      │ 93.17%      │ 92.95%      │
+│ USearch     │ F32         │ 98.63%      │ 98.88%      │ 98.67%      │ 98.88%      │
+│ USearch     │ F16         │ 97.15%      │ 97.94%      │ 98.63%      │ 97.94%      │
+│ USearch     │ BF16        │ 88.89%      │ 92.24%      │ 98.68%      │ 92.24%      │
+│ USearch     │ I8          │ 64.25%      │ 72.03%      │ 94.19%      │ 72.03%      │
 └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
-🏆 WINNER: USearch I8 - Best QPS (11,723) with 9.74% recall@10
-💡 IPS = Insertions Per Second (indexing), QPS = Queries Per Second (search)
 ```
 
-Recall@K is computed as a fraction of search queries, where the known "ground-truth" Top-1 result appeared among the Top-K approximate results.
-NDCG@K stands for Normalized [Discounted Cumulative Gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain) at K, which measures the effectiveness of the search results by considering the position of the relevant documents.
+> IPS stands for Insertions Per Second, and QPS is Queries Per Second.
+> Recall@K is computed as a fraction of search queries, where the known "ground-truth" Top-1 result appeared among the Top-K approximate results.
+> NDCG@K stands for Normalized [Discounted Cumulative Gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain) at K, which measures the effectiveness of the search results by considering the position of the relevant documents.
 
 ## Datasets
 

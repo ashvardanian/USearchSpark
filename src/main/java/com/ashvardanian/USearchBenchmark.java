@@ -227,7 +227,7 @@ public class USearchBenchmark {
             long memoryBefore = getMemoryUsage(index);
 
             // Determine optimal thread count (cap at reasonable number for JNI overhead)
-            int numThreads = Math.min(ForkJoinPool.commonPool().getParallelism(), Math.max(1, numBaseVectors / 1000));
+            int numThreads = ForkJoinPool.commonPool().getParallelism();
             System.out.println("🧵 Using " + numThreads + " threads for indexing (" +
                     ForkJoinPool.commonPool().getParallelism() + " available)");
 
@@ -281,7 +281,7 @@ public class USearchBenchmark {
             SearchMetrics metrics = calculateSearchMetrics(index, queryVectors, numQueries, config.getKValues(),
                     useByteData);
             System.out.println("✅ Done");
-            
+
             // Use the actual search time from metrics (excludes accuracy calculation)
             long searchTime = metrics.searchTimeMs;
 
@@ -334,16 +334,15 @@ public class USearchBenchmark {
         // Find maximum K value for single search optimization
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // Determine optimal thread count for search (smaller than indexing due to query
-        // overhead)
-        int searchThreads = Math.min(ForkJoinPool.commonPool().getParallelism() / 2, Math.max(1, numQueries / 500));
-        System.out.println("🔍 Using " + searchThreads + " threads for search");
+        // Use all available threads for search
+        int numThreads = java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        System.out.println("🔍 Using " + numThreads + " threads for search");
 
         // SINGLE SEARCH with maximum K - no accuracy calculations during timing
         ProgressLogger searchProgress = new ProgressLogger("Searching k=" + maxK, numQueries);
         long startSearch = System.currentTimeMillis();
 
-        if (searchThreads == 1) {
+        if (numThreads == 1) {
             // Single-threaded fallback - reuse buffers
             float[] queryFloatBuffer = useByteData ? null : new float[queryVectors.getCols()];
             byte[] queryByteBuffer = useByteData ? new byte[queryVectors.getCols()] : null;
@@ -361,18 +360,19 @@ public class USearchBenchmark {
         } else {
             // Multi-threaded search with pre-allocated thread-local buffers
             final int bufferSize = queryVectors.getCols();
-            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(0);
-            
+            final java.util.concurrent.atomic.AtomicInteger threadCounter = new java.util.concurrent.atomic.AtomicInteger(
+                    0);
+
             if (useByteData) {
                 // Pre-allocate byte buffers for each thread
-                final byte[][] threadBuffers = new byte[searchThreads][bufferSize];
-                
+                final byte[][] threadBuffers = new byte[numThreads][bufferSize];
+
                 IntStream.range(0, numQueries).parallel().forEach(i -> {
                     try {
                         // Each thread gets its own buffer slice
-                        int threadId = threadCounter.getAndIncrement() % searchThreads;
+                        int threadId = threadCounter.getAndIncrement() % numThreads;
                         byte[] queryBuffer = threadBuffers[threadId];
-                        
+
                         queryVectors.getVectorAsByte(i, queryBuffer);
                         allSearchResults[i] = index.search(queryBuffer, maxK);
                         searchProgress.increment();
@@ -382,14 +382,14 @@ public class USearchBenchmark {
                 });
             } else {
                 // Pre-allocate float buffers for each thread
-                final float[][] threadBuffers = new float[searchThreads][bufferSize];
-                
+                final float[][] threadBuffers = new float[numThreads][bufferSize];
+
                 IntStream.range(0, numQueries).parallel().forEach(i -> {
                     try {
                         // Each thread gets its own buffer slice (thread-safe via modulo)
-                        int threadId = threadCounter.getAndIncrement() % searchThreads;
+                        int threadId = threadCounter.getAndIncrement() % numThreads;
                         float[] queryBuffer = threadBuffers[threadId];
-                        
+
                         queryVectors.getVectorAsFloat(i, queryBuffer);
                         allSearchResults[i] = index.search(queryBuffer, maxK);
                         searchProgress.increment();
@@ -492,7 +492,7 @@ public class USearchBenchmark {
 
         long jvmMemory = runtime.totalMemory() - runtime.freeMemory();
         long nativeMemory = index.memoryUsage();
-        
+
         return jvmMemory + nativeMemory;
     }
 
