@@ -12,11 +12,15 @@ gradle run --args="yandex-deep-10m --max-vectors 100000" # limit vectors for tes
 gradle run --args="msft-spacev-100m --precision f32,i8" # test specific precisions
 ```
 
-When running on larger machines, consider overriding the following JVM settings.
-For 750+ GB machines - consider a massive 512 GB heap:
+When running on larger machines, consider overriding JVM settings based on your hardware.
+Auto-detect optimal settings for your machine:
 
 ```bash
-JAVA_OPTS="-Xmx512g -Xms64g -XX:G1HeapRegionSize=64m" gradle run --args="msft-spacev-1b"
+# For 750+ GB machines with custom heap size
+JAVA_OPTS="-Xmx512g -Xms64g -XX:ParallelGCThreads=$(nproc)" gradle run --args="msft-spacev-100m"
+
+# For development with limited resources
+JAVA_OPTS="-Xmx8g -Xms2g" gradle run --args="unum-wiki-1m --max-vectors 100000"
 ```
 
 For small test runs comparing the impact of multi-threading you may run:
@@ -182,3 +186,9 @@ kubectl logs -f spark-benchmark-driver
 ```
 
 This creates a 3-node Kubernetes cluster locally and runs the benchmark in a truly distributed manner across the nodes.
+
+## Contributing
+
+```bash
+gradle spotlessApply # in case you want to format changes before pushing
+```

@@ -148,21 +148,7 @@ public class USearchBenchmark {
 
         // Limit number of queries for benchmarking
         int numQueries = Math.min(config.getNumQueries(), queryVectors.getRows());
-
-        // Use custom precision order: I8, F16, BF16, F32 (memory efficient to memory intensive)
-        List<BenchmarkConfig.Precision> orderedPrecisions = new ArrayList<>();
-        for (BenchmarkConfig.Precision precision :
-                Arrays.asList(
-                        BenchmarkConfig.Precision.I8,
-                        BenchmarkConfig.Precision.F16,
-                        BenchmarkConfig.Precision.BF16,
-                        BenchmarkConfig.Precision.F32)) {
-            if (config.getPrecisions().contains(precision)) {
-                orderedPrecisions.add(precision);
-            }
-        }
-
-        for (BenchmarkConfig.Precision precision : orderedPrecisions) {
+        for (BenchmarkConfig.Precision precision : config.getPrecisions()) {
             System.out.println(
                     String.format(
                             "\n⚙️ Running USearch benchmark with precision: %s",
@@ -277,6 +263,21 @@ public class USearchBenchmark {
 
             // Log hardware acceleration info
             System.out.println("🚀 Hardware acceleration: " + index.hardwareAcceleration());
+            
+            // Enhanced debugging for USearch 2.20.5+
+            try {
+                String version = Index.version();
+                boolean usesDynamicDispatch = Index.usesDynamicDispatch();
+                String[] compiled = Index.hardwareAccelerationCompiled();
+                String[] available = Index.hardwareAccelerationAvailable();
+                
+                System.out.println("📦 Library version: " + version);
+                System.out.println("🎯 Uses dynamic dispatch: " + usesDynamicDispatch);
+                System.out.println("⚙️ Compiled capabilities: " + String.join(", ", compiled));
+                System.out.println("🔧 Available capabilities: " + String.join(", ", available));
+            } catch (Exception e) {
+                System.out.println("⚠️ Enhanced debugging not available in this USearch version: " + e.getMessage());
+            }
 
             // Measure indexing time
             long startIndexing = System.currentTimeMillis();
