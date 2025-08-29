@@ -253,6 +253,16 @@ public class USearchBenchmark {
                     "⚠️ Warning: Estimated memory usage is very high. Consider reducing --max-vectors");
         }
 
+        String version = Index.version();
+        boolean usesDynamicDispatch = Index.usesDynamicDispatch();
+        String[] compiled = Index.hardwareAccelerationCompiled();
+        String[] available = Index.hardwareAccelerationAvailable();
+
+        System.out.println("📦 Library version: " + version);
+        System.out.println("🎯 Uses dynamic dispatch: " + usesDynamicDispatch);
+        System.out.println("⚙️ Compiled capabilities: " + String.join(", ", compiled));
+        System.out.println("🔧 Available capabilities: " + String.join(", ", available));
+
         try (Index index =
                 createIndex(
                         usearchMetric,
@@ -263,21 +273,6 @@ public class USearchBenchmark {
 
             // Log hardware acceleration info
             System.out.println("🚀 Hardware acceleration: " + index.hardwareAcceleration());
-            
-            // Enhanced debugging for USearch 2.20.5+
-            try {
-                String version = Index.version();
-                boolean usesDynamicDispatch = Index.usesDynamicDispatch();
-                String[] compiled = Index.hardwareAccelerationCompiled();
-                String[] available = Index.hardwareAccelerationAvailable();
-                
-                System.out.println("📦 Library version: " + version);
-                System.out.println("🎯 Uses dynamic dispatch: " + usesDynamicDispatch);
-                System.out.println("⚙️ Compiled capabilities: " + String.join(", ", compiled));
-                System.out.println("🔧 Available capabilities: " + String.join(", ", available));
-            } catch (Exception e) {
-                System.out.println("⚠️ Enhanced debugging not available in this USearch version: " + e.getMessage());
-            }
 
             // Measure indexing time
             long startIndexing = System.currentTimeMillis();

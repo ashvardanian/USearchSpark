@@ -1,6 +1,8 @@
 package com.ashvardanian;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -181,15 +183,29 @@ public class LuceneBenchmark {
         // Load vector IDs once for consistent ID mapping during indexing
         final BinaryVectorLoader.VectorIds vectorIds = loadVectorIds();
 
-        // Create in-memory directory for index
-        Directory directory = new ByteBuffersDirectory();
+        // Create in-memory directory for index - use our dynamic implementation for large datasets
+        Directory directory = new DynamicByteBuffersDirectory();
+        System.out.println("📁 Using DynamicByteBuffersDirectory (grows dynamically, no 4GB limit)");
 
-        // Configure index writer with multithreading - use Lucene's default HNSW
-        // parameters
+        // Configure index writer optimized for pure in-memory indexing
         IndexWriterConfig indexConfig = new IndexWriterConfig();
         indexConfig.setUseCompoundFile(false);
-        indexConfig.setMaxBufferedDocs(1000);
-        indexConfig.setRAMBufferSizeMB(256);
+        
+        // For in-memory: use very large RAM buffer to minimize flushing
+        indexConfig.setRAMBufferSizeMB(16384); // 16GB RAM buffer
+        indexConfig.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+        
+        // Configure concurrent merge scheduler
+        int availableCores = Runtime.getRuntime().availableProcessors();
+        org.apache.lucene.index.ConcurrentMergeScheduler mergeScheduler = 
+            new org.apache.lucene.index.ConcurrentMergeScheduler();
+        mergeScheduler.setMaxMergesAndThreads(availableCores, availableCores / 2);
+        indexConfig.setMergeScheduler(mergeScheduler);
+        
+        // Lucene will handle thread concurrency internally
+        
+        System.out.println("🚀 Pure in-memory config: 16GB RAM buffer, " + 
+                          availableCores + " available cores");
 
         // Create index writer
         IndexWriter indexWriter = new IndexWriter(directory, indexConfig);
@@ -303,6 +319,8 @@ public class LuceneBenchmark {
         }
         indexProgress.complete(numBaseVectors);
 
+        // Commit and close (merging happens automatically with our scheduler)
+        indexWriter.commit();
         indexWriter.close();
 
         long indexingTime = System.currentTimeMillis() - startIndexing;
@@ -310,9 +328,27 @@ public class LuceneBenchmark {
         // Use Math.max to prevent negative memory usage due to GC
         long memoryUsage = Math.max(0, memoryAfter - memoryBefore);
 
-        // Create index reader and searcher
+        // Create index reader and searcher with multithreaded executor
         DirectoryReader indexReader = DirectoryReader.open(directory);
-        IndexSearcher indexSearcher = new IndexSearcher(indexReader);
+        
+        // Configure IndexSearcher with a thread pool for parallel segment searching
+        // This is crucial for scaling HNSW search across multiple cores
+        int searchThreads =
+                config.getNumThreads() != -1
+                        ? config.getNumThreads()
+                        : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        
+        IndexSearcher indexSearcher;
+        if (searchThreads > 1) {
+            // Create a dedicated executor for the IndexSearcher
+            // This allows Lucene to search multiple segments in parallel
+            java.util.concurrent.ExecutorService executor = 
+                java.util.concurrent.Executors.newFixedThreadPool(searchThreads);
+            indexSearcher = new IndexSearcher(indexReader, executor);
+            System.out.println("🔧 Configured IndexSearcher with " + searchThreads + " threads for parallel segment search");
+        } else {
+            indexSearcher = new IndexSearcher(indexReader);
+        }
 
         // Calculate search metrics (includes both search and accuracy calculation)
         System.out.println("🔍 Searching...");

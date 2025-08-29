@@ -61,7 +61,7 @@ Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki d
 > __Memory__: 768 GB RAM total.
 > __Java__: OpenJDK 21.0.5 with Java Vector API (`--add-modules=jdk.incubator.vector`).
 > __JVM__: 128GB heap (`-Xmx128g`) with ZGC garbage collector (`-XX:+UseZGC`) for sub-10ms pauses.
-> __Library versions__: USearch v2.20.4, Lucene v9.12.0.
+> __Library versions__: USearch v2.20.8, Lucene v9.12.0.
 
 IPS stands for Insertions Per Second, and QPS is Queries Per Second.
 Recall@K is computed as a fraction of search queries, where the known "ground-truth" Top-1 result appeared among the Top-K approximate results.

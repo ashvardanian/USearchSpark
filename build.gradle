@@ -28,17 +28,14 @@ application {
         '--add-opens=java.base/sun.security.action=ALL-UNNAMED',
         '--add-opens=java.base/sun.util.calendar=ALL-UNNAMED',
         '--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED',
-
         // Enable Vector API for Lucene performance
         '--add-modules=jdk.incubator.vector',
-        
         // Memory settings for large-scale benchmarking (750+ GB machine)
         '-Xms64g',
         // Start with 64GB heap (pre-allocate for performance)
         '-Xmx64g',
         // 50% young generation for heavy allocation
         '-XX:NewRatio=1',
-
         // GC tuning optimized for high-throughput benchmarks
         '-XX:+UseParallelGC',
         // Maximum throughput GC for benchmarks
@@ -55,11 +52,8 @@ application {
         '-XX:+UseTransparentHugePages',
         // Enable large pages
         '-XX:+UseLargePages',
-
-
         // Pre-touch all memory
         '-XX:+AlwaysPreTouch',
-
         // JIT compiler tuning
         '-XX:+UseCompressedOops',
         // Compressed object pointers
@@ -67,22 +61,24 @@ application {
         // Larger code cache
         '-XX:InitialCodeCacheSize=256m',
         '-XX:CompileThreshold=1000',
-        
         // We need diagnostic flags to enable SIMD options
         '-XX:+UnlockDiagnosticVMOptions',
         '-XX:+UnlockExperimentalVMOptions',
-
         // x86_64 Intel/AMD optimizations
-        '-XX:UseAVX=3',                          // Enable AVX-512 in JVM (0=none, 1=AVX, 2=AVX2, 3=AVX-512)
-        '-XX:+UseCountLeadingZerosInstruction',  // Enable LZCNT instruction (x86_64)
-        '-XX:+UseCountTrailingZerosInstruction', // Enable TZCNT instruction (x86_64)
-        '-XX:+UseBMI2Instructions',              // Enable BMI2 instructions (Haswell+)
-        '-XX:+UseAESIntrinsics',                 // Enable AES-NI hardware acceleration
-        
+        // Enable AVX-512 in JVM (0=none, 1=AVX, 2=AVX2, 3=AVX-512)
+        '-XX:UseAVX=3',
+        // Enable LZCNT instruction (x86_64)
+        '-XX:+UseCountLeadingZerosInstruction',
+        // Enable TZCNT instruction (x86_64)
+        '-XX:+UseCountTrailingZerosInstruction',
+        // Enable BMI2 instructions (Haswell+)
+        '-XX:+UseBMI2Instructions',
+        // Enable AES-NI hardware acceleration
+        '-XX:+UseAESIntrinsics',
         // ARM64 settings are hardly compatible even with newer JDK versions
         // '-XX:+UseSVE',                           // Enable Scalable Vector Extension (ARM64, JDK 17+)
         // '-XX:+UseNEON',                          // Enable NEON SIMD (ARM64, usually default)
-        
+
         // Library path
         '-Djava.library.path=/tmp'
     ]
@@ -113,7 +109,7 @@ repositories {
 // Task to download USearch JAR from GitHub releases
 task downloadUSearchJar {
     doLast {
-        def usearchVersion = '2.20.6'
+        def usearchVersion = '2.20.8'
         def usearchUrl = "https://github.com/unum-cloud/usearch/releases/download/v${usearchVersion}/usearch-${usearchVersion}.jar"
         def usearchFile = file("lib/usearch-${usearchVersion}.jar")
 
@@ -131,13 +127,13 @@ task downloadUSearchJar {
 compileJava.dependsOn downloadUSearchJar
 
 dependencies {
-    // Spark 4.0 dependencies (implementation for gradle run, provided for spark-submit)
+    // Spark 4.0 dependencies
     implementation 'org.apache.spark:spark-core_2.13:4.0.0'
     implementation 'org.apache.spark:spark-sql_2.13:4.0.0'
     implementation 'org.apache.spark:spark-mllib_2.13:4.0.0'
 
-    // USearch JAR from local lib directory (downloaded automatically)
-    implementation name: 'usearch', version: '2.20.6', ext: 'jar'
+    // USearch JAR from local lib directory
+    implementation name: 'usearch', version: '2.20.8', ext: 'jar'
 
     // Apache Lucene for HNSW baseline
     implementation 'org.apache.lucene:lucene-core:9.12.0'

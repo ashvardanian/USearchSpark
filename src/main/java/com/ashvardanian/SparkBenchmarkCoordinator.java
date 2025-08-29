@@ -132,20 +132,16 @@ public class SparkBenchmarkCoordinator {
             BenchmarkConfig config, DatasetRegistry.Dataset dataset) throws Exception {
         logger.info("Running local benchmark");
 
-        // Simple progress tracking without complex Spark operations
-
         // Run Lucene benchmark first (multithreaded)
         progressAccumulator.add(20);
         LuceneBenchmark luceneBenchmark = new LuceneBenchmark(config, dataset);
         LuceneBenchmark.BenchmarkResult luceneResult = luceneBenchmark.runBenchmark();
 
+        // Run USearch benchmarks (multithreaded)
         progressAccumulator.add(30);
-
-        // Run USearch benchmarks (multithreaded) - will use custom precision order
         USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
         Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults =
                 usearchBenchmark.runBenchmarks();
-
         progressAccumulator.add(40);
 
         // Log results with clean output
@@ -153,8 +149,6 @@ public class SparkBenchmarkCoordinator {
         LuceneBenchmark.logBenchmarkResults(luceneResult);
 
         long totalTime = System.currentTimeMillis();
-
-        // Results already logged above with clean output
 
         return new BenchmarkResults(
                 config.getDatasetName(), config.getMode(), totalTime, usearchResults, luceneResult);
