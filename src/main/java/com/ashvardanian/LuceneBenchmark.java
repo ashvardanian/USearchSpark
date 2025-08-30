@@ -182,6 +182,9 @@ public class LuceneBenchmark {
         mergePolicy.setFloorSegmentMB(16);
         indexConfig.setMergePolicy(mergePolicy);
 
+        // Configure HNSW parameters (higher -> better recall, more memory/indexing time)
+        indexConfig.setCodec(new CustomHnswCodec(config.getHnswMaxConn(), config.getHnswBeamWidth()));
+
         // Moderate RAM buffer so we flush into multiple segments
         indexConfig.setRAMBufferSizeMB(512); // 512MB buffer
         indexConfig.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
@@ -194,8 +197,8 @@ public class LuceneBenchmark {
 
         // Lucene will handle thread concurrency internally
 
-        System.out.println("🚀 In-memory config: 512MB RAM buffer, tiered merges to keep segments; " + availableCores
-                + " available cores");
+        System.out.println("🚀 In-memory config: 512MB RAM buffer, tiered merges; HNSW M=" + config.getHnswMaxConn()
+                + ", beamWidth=" + config.getHnswBeamWidth() + "; " + availableCores + " available cores");
 
         // Create index writer
         IndexWriter indexWriter = new IndexWriter(directory, indexConfig);
@@ -282,7 +285,12 @@ public class LuceneBenchmark {
         long indexingTime = System.currentTimeMillis() - startIndexing;
         long memoryAfter = getMemoryUsage();
         // Use Math.max to prevent negative memory usage due to GC
-        long memoryUsage = Math.max(0, memoryAfter - memoryBefore);
+        long memoryUsageHeap = Math.max(0, memoryAfter - memoryBefore);
+        long indexBytes = 0;
+        if (directory instanceof DynamicByteBuffersDirectory) {
+            indexBytes = ((DynamicByteBuffersDirectory) directory).estimatedSizeInBytes();
+        }
+        long memoryUsage = Math.max(memoryUsageHeap, indexBytes);
 
         // Create index reader
         DirectoryReader indexReader = DirectoryReader.open(directory);
@@ -326,20 +334,43 @@ public class LuceneBenchmark {
         // Use the total search time (includes ID retrieval for realistic benchmarking)
         long searchTime = searchMetrics.totalSearchTimeMs;
 
-        // Calculate throughput based on total search time (realistic)
-        double throughputQPS = numQueries / (searchTime / 1000.0);
-
-        // Also calculate pure search QPS (theoretical maximum)
+        // Throughputs
+        double throughputQPS = numQueries / (searchTime / 1000.0); // total (pure + id retrieval)
         double pureSearchQPS = numQueries / (searchMetrics.pureSearchTimeMs / 1000.0);
+        double idRetrievalQPS = searchMetrics.idRetrievalTimeMs > 0
+                ? numQueries / (searchMetrics.idRetrievalTimeMs / 1000.0)
+                : 0.0;
+
+        // Report memory breakdown
+        System.out.println(String.format("🧠 Memory — Index bytes: %,d MB; Heap delta: %,d MB; Reporting: %,d MB",
+                Math.round(indexBytes / (1024.0 * 1024.0)), Math.round(memoryUsageHeap / (1024.0 * 1024.0)),
+                Math.round(memoryUsage / (1024.0 * 1024.0))));
 
         // Cleanup
         indexReader.close();
         directory.close();
 
         System.out.println(String.format(
-                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Pure Search: %,dms (%,.0f QPS), +ID Retrieval: %,dms (%,.0f QPS)",
+                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Pure Search: %,dms (%,.0f QPS), +ID Retrieval: %,dms (%,.0f QPS), Total: %,dms (%,.0f QPS)",
                 indexingTime, searchMetrics.pureSearchTimeMs, pureSearchQPS, searchMetrics.idRetrievalTimeMs,
-                throughputQPS));
+                idRetrievalQPS, searchTime, throughputQPS));
+
+        // Per-core accounting, for clarity
+        int indexingThreadsUsed = (config.getNumThreads() != -1)
+                ? config.getNumThreads()
+                : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        int searchThreadsUsed = perQueryThreads * outerQueryParallelism;
+        double ipsTotal = numBaseVectors / (indexingTime / 1000.0);
+        double ipsPerCore = indexingThreadsUsed > 0 ? ipsTotal / indexingThreadsUsed : 0.0;
+        double pureQpsPerCore = searchThreadsUsed > 0 ? pureSearchQPS / searchThreadsUsed : 0.0;
+        double idQpsPerCore = searchThreadsUsed > 0 ? idRetrievalQPS / searchThreadsUsed : 0.0;
+        double totalQpsPerCore = searchThreadsUsed > 0 ? throughputQPS / searchThreadsUsed : 0.0;
+
+        System.out.println(String.format("   Threads — indexing: %d, search per-query: %d, outer: %d (total: %d)",
+                indexingThreadsUsed, perQueryThreads, outerQueryParallelism, searchThreadsUsed));
+        System.out.println(String.format(
+                "   Per-core — Indexing: %,.0f IPS/core; Pure: %,.2f QPS/core; ID: %,.2f QPS/core; Total: %,.2f QPS/core",
+                ipsPerCore, pureQpsPerCore, idQpsPerCore, totalQpsPerCore));
 
         return new BenchmarkResult(indexingTime, searchTime, searchMetrics.pureSearchTimeMs,
                 searchMetrics.idRetrievalTimeMs, throughputQPS, pureSearchQPS, searchMetrics.recallAtK,
@@ -390,7 +421,8 @@ public class LuceneBenchmark {
                 + ", outer: " + numThreads);
 
         // Phase 1: Pure HNSW search (no ID retrieval)
-        ProgressLogger pureSearchProgress = new ProgressLogger("Pure search k=" + maxK, numQueries);
+        ProgressLogger pureSearchProgress = new ProgressLogger("Pure search k=" + maxK, numQueries,
+                ProgressLogger.RateUnit.QPS);
         TopDocs[] pureSearchResults = new TopDocs[numQueries];
 
         long startPureSearch = System.currentTimeMillis();
@@ -448,7 +480,8 @@ public class LuceneBenchmark {
         pureSearchProgress.complete(numQueries);
 
         // Phase 2: ID retrieval from search results
-        ProgressLogger idRetrievalProgress = new ProgressLogger("ID retrieval k=" + maxK, numQueries);
+        ProgressLogger idRetrievalProgress = new ProgressLogger("ID retrieval k=" + maxK, numQueries,
+                ProgressLogger.RateUnit.QPS);
         long startIdRetrieval = System.currentTimeMillis();
 
         if (numThreads == 1) {

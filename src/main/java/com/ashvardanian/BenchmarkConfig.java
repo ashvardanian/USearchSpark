@@ -72,6 +72,9 @@ public class BenchmarkConfig {
     private long maxVectors = -1L; // -1 means use all vectors
     private int batchSize = 1024; // Default batch size for parallel processing
     private int numThreads = -1; // -1 means use hardware thread count
+    // Lucene HNSW tuning
+    private int hnswMaxConn = 32; // default > Lucene's typical 16 to improve recall
+    private int hnswBeamWidth = 512; // larger beam improves recall at search time
 
     public BenchmarkConfig(String datasetName, String outputPath, BenchmarkMode mode, List<Precision> precisions,
             Map<String, String> additionalConfig) {
@@ -108,6 +111,12 @@ public class BenchmarkConfig {
         }
         if (additionalConfig.containsKey("numThreads")) {
             this.numThreads = Integer.parseInt(additionalConfig.get("numThreads"));
+        }
+        if (additionalConfig.containsKey("hnsw.m")) {
+            this.hnswMaxConn = Integer.parseInt(additionalConfig.get("hnsw.m"));
+        }
+        if (additionalConfig.containsKey("hnsw.beamWidth")) {
+            this.hnswBeamWidth = Integer.parseInt(additionalConfig.get("hnsw.beamWidth"));
         }
     }
 
@@ -228,5 +237,13 @@ public class BenchmarkConfig {
 
     public int getNumThreads() {
         return numThreads;
+    }
+
+    public int getHnswMaxConn() {
+        return hnswMaxConn;
+    }
+
+    public int getHnswBeamWidth() {
+        return hnswBeamWidth;
     }
 }

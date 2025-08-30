@@ -32,9 +32,8 @@ public class BenchmarkResultsTable {
         double luceneIps = luceneResult.getIndexingTimeMs() > 0
                 ? (luceneResult.getNumVectors() * 1000.0) / luceneResult.getIndexingTimeMs()
                 : 0;
-        String luceneQpsRange = String.format("%,.0f-%,.0f", luceneResult.getThroughputQPS(),
-                luceneResult.getPureSearchQPS());
-        perfTable.addRow("Lucene", "F32", String.format("%,.0f", luceneIps), luceneQpsRange,
+        perfTable.addRow("Lucene", "F32", String.format("%,.0f", luceneIps),
+                String.format("%,.0f", luceneResult.getThroughputQPS()),
                 formatMemory(luceneResult.getMemoryUsageBytes()));
 
         // USearch results

@@ -7,6 +7,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * time-based reporting to minimize overhead
  */
 public class ProgressLogger {
+    public enum RateUnit {
+        QPS, IPS
+    }
     private final String operation;
     private final long totalItems;
     private final long intervalMs;
@@ -14,12 +17,15 @@ public class ProgressLogger {
     private final AtomicLong lastLogTime = new AtomicLong(0);
     private final AtomicLong currentProgress = new AtomicLong(0);
     private final int checkInterval;
+    private final RateUnit unit;
 
     public ProgressLogger(String operation, long totalItems, long intervalMs) {
         this.operation = operation;
         this.totalItems = totalItems;
         this.intervalMs = intervalMs;
         this.startTime = System.currentTimeMillis();
+        // Heuristic default for backward compatibility
+        this.unit = operation.toLowerCase().contains("search") ? RateUnit.QPS : RateUnit.IPS;
 
         // Dynamic check interval: fewer time checks for larger datasets
         if (totalItems > 100_000_000) {
@@ -37,6 +43,32 @@ public class ProgressLogger {
 
     public ProgressLogger(String operation, long totalItems) {
         this(operation, totalItems, 5000); // Default 5 second intervals
+    }
+
+    public ProgressLogger(String operation, long totalItems, RateUnit unit) {
+        this(operation, totalItems, 5000);
+        // Override inferred unit
+        this.unit = unit;
+    }
+
+    public ProgressLogger(String operation, long totalItems, long intervalMs, RateUnit unit) {
+        this.operation = operation;
+        this.totalItems = totalItems;
+        this.intervalMs = intervalMs;
+        this.startTime = System.currentTimeMillis();
+        this.unit = unit;
+
+        if (totalItems > 100_000_000) {
+            this.checkInterval = 50_000;
+        } else if (totalItems > 10_000_000) {
+            this.checkInterval = 10_000;
+        } else if (totalItems > 1_000_000) {
+            this.checkInterval = 5_000;
+        } else {
+            this.checkInterval = 1_000;
+        }
+
+        System.out.println("🔄 " + operation + "...");
     }
 
     /**
@@ -58,7 +90,7 @@ public class ProgressLogger {
                 long elapsed = now - startTime;
                 double rate = elapsed > 0 ? (newProgress * 1000.0) / elapsed : 0;
 
-                String rateUnit = operation.toLowerCase().contains("search") ? "QPS" : "IPS";
+                String rateUnit = unit == RateUnit.QPS ? "QPS" : "IPS";
                 System.out.println("   Progress: " + String.format("%.1f%% (%,d/%,d, %,.0f %s)", progress, newProgress,
                         totalItems, rate, rateUnit));
             }
@@ -68,7 +100,7 @@ public class ProgressLogger {
     public void complete(long actualItems) {
         long elapsed = System.currentTimeMillis() - startTime;
         double rate = elapsed > 0 ? (actualItems * 1000.0) / elapsed : 0;
-        String rateUnit = operation.toLowerCase().contains("search") ? "QPS" : "IPS";
+        String rateUnit = unit == RateUnit.QPS ? "QPS" : "IPS";
 
         System.out.println("   ✅ " + operation + " completed: "
                 + String.format("%,d items, %,.0f %s", actualItems, rate, rateUnit));
