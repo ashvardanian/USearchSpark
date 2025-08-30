@@ -17,6 +17,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.TieredMergePolicy;
+import org.apache.lucene.index.MergeScheduler.MergeSource;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
@@ -189,10 +190,37 @@ public class LuceneBenchmark {
         indexConfig.setRAMBufferSizeMB(512); // 512MB buffer
         indexConfig.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
 
-        // Configure concurrent merge scheduler
+        // Configure aggressive concurrent merge scheduler for maximum speed with progress reporting
         int availableCores = Runtime.getRuntime().availableProcessors();
-        org.apache.lucene.index.ConcurrentMergeScheduler mergeScheduler = new org.apache.lucene.index.ConcurrentMergeScheduler();
-        mergeScheduler.setMaxMergesAndThreads(availableCores, availableCores / 2);
+        final java.util.concurrent.atomic.AtomicLong totalMergeTime = new java.util.concurrent.atomic.AtomicLong(0);
+        final java.util.concurrent.atomic.AtomicLong totalIndexingStartTime = new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis());
+        
+        org.apache.lucene.index.ConcurrentMergeScheduler mergeScheduler = new org.apache.lucene.index.ConcurrentMergeScheduler() {
+            @Override
+            protected void doMerge(MergeSource mergeSource, org.apache.lucene.index.MergePolicy.OneMerge merge)
+                    throws IOException {
+                long startMerge = System.currentTimeMillis();
+                double sizeMB = merge.estimatedMergeBytes / 1024.0 / 1024.0;
+                System.out.println(
+                        String.format("🔄 Starting merge of %d segments (%.1f MB)", merge.segments.size(), sizeMB));
+
+                super.doMerge(mergeSource, merge);
+
+                long mergeTime = System.currentTimeMillis() - startMerge;
+                totalMergeTime.addAndGet(mergeTime);
+                double throughputMBps = sizeMB / (mergeTime / 1000.0);
+                
+                // Calculate adjusted IPS including merge overhead
+                long totalElapsed = System.currentTimeMillis() - totalIndexingStartTime.get();
+                double adjustedIPS = totalElapsed > 0 ? (numBaseVectors * 1000.0) / totalElapsed : 0.0;
+                
+                System.out.println(String.format("✅ Completed merge in %,d ms (%.1f MB/s) - Adjusted IPS: %.0f", 
+                    mergeTime, throughputMBps, adjustedIPS));
+            }
+        };
+
+        // Use ALL available threads for merging to maximize speed
+        mergeScheduler.setMaxMergesAndThreads(availableCores * 2, availableCores);
         indexConfig.setMergeScheduler(mergeScheduler);
 
         // Lucene will handle thread concurrency internally
@@ -205,6 +233,7 @@ public class LuceneBenchmark {
 
         // Measure indexing time
         long startIndexing = System.currentTimeMillis();
+        totalIndexingStartTime.set(startIndexing); // Update the merge scheduler's start time
         long memoryBefore = getMemoryUsage();
 
         // Use all available cores for maximum performance
@@ -283,6 +312,18 @@ public class LuceneBenchmark {
         indexWriter.close();
 
         long indexingTime = System.currentTimeMillis() - startIndexing;
+        long totalMergeTimeValue = totalMergeTime.get();
+        long pureIndexingTime = indexingTime - totalMergeTimeValue;
+        
+        // Report merge statistics
+        if (totalMergeTimeValue > 0) {
+            double mergeOverheadPercent = (totalMergeTimeValue * 100.0) / indexingTime;
+            double pureIPS = pureIndexingTime > 0 ? (numBaseVectors * 1000.0) / pureIndexingTime : 0.0;
+            double totalIPS = indexingTime > 0 ? (numBaseVectors * 1000.0) / indexingTime : 0.0;
+            System.out.println(String.format("⏱️  Merge overhead: %,d ms (%.1f%%) - Pure IPS: %.0f, Total IPS: %.0f",
+                totalMergeTimeValue, mergeOverheadPercent, pureIPS, totalIPS));
+        }
+        
         long memoryAfter = getMemoryUsage();
         // Use Math.max to prevent negative memory usage due to GC
         long memoryUsageHeap = Math.max(0, memoryAfter - memoryBefore);

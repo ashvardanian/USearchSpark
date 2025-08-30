@@ -46,9 +46,7 @@ public class ProgressLogger {
     }
 
     public ProgressLogger(String operation, long totalItems, RateUnit unit) {
-        this(operation, totalItems, 5000);
-        // Override inferred unit
-        this.unit = unit;
+        this(operation, totalItems, 5000, unit);
     }
 
     public ProgressLogger(String operation, long totalItems, long intervalMs, RateUnit unit) {
