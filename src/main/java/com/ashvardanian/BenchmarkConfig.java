@@ -13,8 +13,7 @@ public class BenchmarkConfig {
     private static final Logger logger = LoggerFactory.getLogger(BenchmarkConfig.class);
 
     public enum BenchmarkMode {
-        LOCAL("local"),
-        CLUSTER("cluster");
+        LOCAL("local"), CLUSTER("cluster");
 
         private final String name;
 
@@ -37,10 +36,7 @@ public class BenchmarkConfig {
     }
 
     public enum Precision {
-        F32("f32"),
-        F16("f16"),
-        BF16("bf16"),
-        I8("i8");
+        F32("f32"), F16("f16"), BF16("bf16"), I8("i8");
 
         private final String name;
 
@@ -77,11 +73,7 @@ public class BenchmarkConfig {
     private int batchSize = 1024; // Default batch size for parallel processing
     private int numThreads = -1; // -1 means use hardware thread count
 
-    public BenchmarkConfig(
-            String datasetName,
-            String outputPath,
-            BenchmarkMode mode,
-            List<Precision> precisions,
+    public BenchmarkConfig(String datasetName, String outputPath, BenchmarkMode mode, List<Precision> precisions,
             Map<String, String> additionalConfig) {
         this.datasetName = datasetName;
         this.outputPath = outputPath;
@@ -103,12 +95,10 @@ public class BenchmarkConfig {
             this.kValues = Arrays.stream(kValuesStr).mapToInt(Integer::parseInt).toArray();
         }
         if (additionalConfig.containsKey("includeIndexingTime")) {
-            this.includeIndexingTime =
-                    Boolean.parseBoolean(additionalConfig.get("includeIndexingTime"));
+            this.includeIndexingTime = Boolean.parseBoolean(additionalConfig.get("includeIndexingTime"));
         }
         if (additionalConfig.containsKey("includeMemoryUsage")) {
-            this.includeMemoryUsage =
-                    Boolean.parseBoolean(additionalConfig.get("includeMemoryUsage"));
+            this.includeMemoryUsage = Boolean.parseBoolean(additionalConfig.get("includeMemoryUsage"));
         }
         if (additionalConfig.containsKey("maxVectors")) {
             this.maxVectors = Long.parseLong(additionalConfig.get("maxVectors"));
@@ -126,15 +116,14 @@ public class BenchmarkConfig {
             throw new IllegalArgumentException("Dataset name or config file required");
         }
 
-        String datasetName = args[0];
+        String datasetName = null;
         BenchmarkMode mode = BenchmarkMode.LOCAL;
         String outputPath = "stats";
-        List<Precision> precisions =
-                Arrays.asList(Precision.F32, Precision.F16, Precision.BF16, Precision.I8);
+        List<Precision> precisions = Arrays.asList(Precision.F32, Precision.F16, Precision.BF16, Precision.I8);
         Map<String, String> additionalConfig = new HashMap<>();
 
-        // Parse arguments
-        for (int i = 1; i < args.length; i++) {
+        // Parse arguments - find dataset name and options
+        for (int i = 0; i < args.length; i++) {
             String arg = args[i];
 
             if ("--mode".equals(arg) && i + 1 < args.length) {
@@ -161,9 +150,18 @@ public class BenchmarkConfig {
                 additionalConfig.put("batchSize", args[++i]);
             } else if ("--threads".equals(arg) && i + 1 < args.length) {
                 additionalConfig.put("numThreads", args[++i]);
+            } else if ("--master".equals(arg) && i + 1 < args.length) {
+                additionalConfig.put("sparkMaster", args[++i]);
             } else if (arg.startsWith("--")) {
                 throw new IllegalArgumentException("Unknown option: " + arg);
+            } else if (datasetName == null) {
+                // First non-option argument is the dataset name
+                datasetName = arg;
             }
+        }
+
+        if (datasetName == null) {
+            throw new IllegalArgumentException("Dataset name is required");
         }
 
         logger.info("Parsed benchmark configuration:");
@@ -193,9 +191,7 @@ public class BenchmarkConfig {
     }
 
     public List<String> getPrecisionNames() {
-        return precisions.stream()
-                .map(Precision::getName)
-                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+        return precisions.stream().map(Precision::getName).collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
     public int getNumQueries() {

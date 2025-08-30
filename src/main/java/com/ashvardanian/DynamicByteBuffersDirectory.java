@@ -1,56 +1,56 @@
 package com.ashvardanian;
 
-import org.apache.lucene.store.ByteBuffersDirectory;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.store.Lock;
-import org.apache.lucene.store.LockFactory;
-import org.apache.lucene.store.NoLockFactory;
-import org.apache.lucene.store.FilterIndexOutput;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.lucene.store.ByteBuffersDirectory;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.FilterIndexOutput;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.store.Lock;
+import org.apache.lucene.store.LockFactory;
+import org.apache.lucene.store.NoLockFactory;
 
 /**
- * A Directory implementation that dynamically grows by adding more ByteBuffersDirectory instances
- * as needed to work around the 4GB limitation of a single ByteBuffersDirectory.
- * 
+ * A Directory implementation that dynamically grows by adding more ByteBuffersDirectory instances as needed to work
+ * around the 4GB limitation of a single ByteBuffersDirectory.
+ *
  * This implementation monitors file sizes and automatically creates new shards when approaching limits.
  */
 public class DynamicByteBuffersDirectory extends Directory {
-    
+
     private static final long MAX_SHARD_SIZE = 3L * 1024 * 1024 * 1024; // 3GB per shard (leaving buffer)
     private static final int INITIAL_SHARDS = 4;
-    
+
     private final List<ByteBuffersDirectory> shards;
     private final Map<String, Integer> fileToShard;
     private final Map<Integer, AtomicLong> shardSizes;
     private final AtomicInteger nextShardIndex;
     private final LockFactory lockFactory;
     private final Object growthLock = new Object();
-    
+
     public DynamicByteBuffersDirectory() {
         this.shards = new ArrayList<>();
         this.fileToShard = new ConcurrentHashMap<>();
         this.shardSizes = new ConcurrentHashMap<>();
         this.nextShardIndex = new AtomicInteger(0);
         this.lockFactory = NoLockFactory.INSTANCE;
-        
+
         // Initialize with a few shards
         for (int i = 0; i < INITIAL_SHARDS; i++) {
             addNewShard();
         }
     }
-    
+
     private int addNewShard() {
         synchronized (growthLock) {
             int shardIndex = shards.size();
@@ -60,14 +60,14 @@ public class DynamicByteBuffersDirectory extends Directory {
             return shardIndex;
         }
     }
-    
+
     private int findOrCreateShardForFile(String name, long estimatedSize) {
         // Check if file already exists
         Integer existingShard = fileToShard.get(name);
         if (existingShard != null) {
             return existingShard;
         }
-        
+
         // Find a shard with enough space
         synchronized (growthLock) {
             for (int i = 0; i < shards.size(); i++) {
@@ -77,14 +77,14 @@ public class DynamicByteBuffersDirectory extends Directory {
                     return i;
                 }
             }
-            
+
             // No shard has enough space, create a new one
             int newShardIndex = addNewShard();
             fileToShard.put(name, newShardIndex);
             return newShardIndex;
         }
     }
-    
+
     private ByteBuffersDirectory getShardForRead(String name) throws IOException {
         Integer shardIdx = fileToShard.get(name);
         if (shardIdx == null) {
@@ -100,7 +100,7 @@ public class DynamicByteBuffersDirectory extends Directory {
         }
         return shards.get(shardIdx);
     }
-    
+
     @Override
     public String[] listAll() throws IOException {
         Set<String> allFiles = ConcurrentHashMap.newKeySet();
@@ -113,7 +113,7 @@ public class DynamicByteBuffersDirectory extends Directory {
         }
         return allFiles.toArray(new String[0]);
     }
-    
+
     @Override
     public void deleteFile(String name) throws IOException {
         Integer shardIdx = fileToShard.get(name);
@@ -124,12 +124,12 @@ public class DynamicByteBuffersDirectory extends Directory {
             fileToShard.remove(name);
         }
     }
-    
+
     @Override
     public long fileLength(String name) throws IOException {
         return getShardForRead(name).fileLength(name);
     }
-    
+
     @Override
     public IndexOutput createOutput(String name, IOContext context) throws IOException {
         // Estimate size - for HNSW vectors, this could be large
@@ -137,16 +137,16 @@ public class DynamicByteBuffersDirectory extends Directory {
         if (name.contains("vec")) {
             estimatedSize = 1024 * 1024 * 1024; // 1GB for vector files
         }
-        
+
         int shardIdx = findOrCreateShardForFile(name, estimatedSize);
         ByteBuffersDirectory shard = shards.get(shardIdx);
         AtomicLong shardSize = shardSizes.get(shardIdx);
-        
+
         // Wrap the output to track size
         IndexOutput delegate = shard.createOutput(name, context);
-        return new FilterIndexOutput("SizeTrackingOutput(" + name + ")", delegate) {
+        return new FilterIndexOutput("SizeTrackingOutput", name, delegate) {
             private long bytesWritten = 0;
-            
+
             @Override
             public void writeByte(byte b) throws IOException {
                 super.writeByte(b);
@@ -155,7 +155,7 @@ public class DynamicByteBuffersDirectory extends Directory {
                     shardSize.addAndGet(100 * 1024 * 1024);
                 }
             }
-            
+
             @Override
             public void writeBytes(byte[] b, int offset, int length) throws IOException {
                 super.writeBytes(b, offset, length);
@@ -164,7 +164,7 @@ public class DynamicByteBuffersDirectory extends Directory {
                     shardSize.addAndGet(100 * 1024 * 1024);
                 }
             }
-            
+
             @Override
             public void close() throws IOException {
                 super.close();
@@ -173,7 +173,7 @@ public class DynamicByteBuffersDirectory extends Directory {
             }
         };
     }
-    
+
     private long calculateActualShardSize(int shardIdx) {
         long total = 0;
         try {
@@ -186,14 +186,14 @@ public class DynamicByteBuffersDirectory extends Directory {
         }
         return total;
     }
-    
+
     @Override
     public IndexOutput createTempOutput(String prefix, String suffix, IOContext context) throws IOException {
         // Use round-robin for temp files across existing shards
         int shardIdx = nextShardIndex.getAndIncrement() % shards.size();
         return shards.get(shardIdx).createTempOutput(prefix, suffix, context);
     }
-    
+
     @Override
     public void sync(Collection<String> names) throws IOException {
         Map<Integer, Set<String>> shardFiles = new HashMap<>();
@@ -203,12 +203,12 @@ public class DynamicByteBuffersDirectory extends Directory {
                 shardFiles.computeIfAbsent(shardIdx, k -> ConcurrentHashMap.newKeySet()).add(name);
             }
         }
-        
+
         for (Map.Entry<Integer, Set<String>> entry : shardFiles.entrySet()) {
             shards.get(entry.getKey()).sync(entry.getValue());
         }
     }
-    
+
     @Override
     public void rename(String source, String dest) throws IOException {
         ByteBuffersDirectory shard = getShardForRead(source);
@@ -218,7 +218,7 @@ public class DynamicByteBuffersDirectory extends Directory {
             fileToShard.put(dest, shardIdx);
         }
     }
-    
+
     @Override
     public void syncMetaData() throws IOException {
         synchronized (growthLock) {
@@ -227,17 +227,17 @@ public class DynamicByteBuffersDirectory extends Directory {
             }
         }
     }
-    
+
     @Override
     public IndexInput openInput(String name, IOContext context) throws IOException {
         return getShardForRead(name).openInput(name, context);
     }
-    
+
     @Override
     public Lock obtainLock(String name) throws IOException {
         return lockFactory.obtainLock(this, name);
     }
-    
+
     @Override
     public void close() throws IOException {
         synchronized (growthLock) {
@@ -246,7 +246,7 @@ public class DynamicByteBuffersDirectory extends Directory {
             }
         }
     }
-    
+
     @Override
     public Set<String> getPendingDeletions() throws IOException {
         Set<String> allPending = ConcurrentHashMap.newKeySet();
@@ -257,7 +257,7 @@ public class DynamicByteBuffersDirectory extends Directory {
         }
         return allPending;
     }
-    
+
     public long estimatedSizeInBytes() {
         long total = 0;
         for (AtomicLong shardSize : shardSizes.values()) {
@@ -265,11 +265,11 @@ public class DynamicByteBuffersDirectory extends Directory {
         }
         return total;
     }
-    
+
     @Override
     public String toString() {
         long totalSize = estimatedSizeInBytes();
-        return String.format("DynamicByteBuffersDirectory[shards=%d, totalSize=%,d bytes (%.2f GB)]", 
-                            shards.size(), totalSize, totalSize / (1024.0 * 1024.0 * 1024.0));
+        return String.format("DynamicByteBuffersDirectory[shards=%d, totalSize=%,d bytes (%.2f GB)]", shards.size(),
+                totalSize, totalSize / (1024.0 * 1024.0 * 1024.0));
     }
 }

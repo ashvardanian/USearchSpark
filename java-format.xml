@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <profiles version="13">
     <profile kind="CodeFormatterProfile" name="GoogleStyle" version="13">
+        <!-- Set maximum line length to 120 characters -->
+        <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="120"/>
+        <!-- Keep Javadoc/comment line length consistent -->
+        <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="120"/>
         <setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="space"/>
         <setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>
         <setting id="org.eclipse.jdt.core.formatter.indentation.size" value="4"/>

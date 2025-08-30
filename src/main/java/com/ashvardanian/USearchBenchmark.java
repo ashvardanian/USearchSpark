@@ -28,16 +28,9 @@ public class USearchBenchmark {
         private final int numVectors;
         private final int dimensions;
 
-        public BenchmarkResult(
-                BenchmarkConfig.Precision precision,
-                long indexingTimeMs,
-                long searchTimeMs,
-                double throughputQPS,
-                Map<Integer, Double> recallAtK,
-                Map<Integer, Double> ndcgAtK,
-                long memoryUsageBytes,
-                int numVectors,
-                int dimensions) {
+        public BenchmarkResult(BenchmarkConfig.Precision precision, long indexingTimeMs, long searchTimeMs,
+                double throughputQPS, Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK,
+                long memoryUsageBytes, int numVectors, int dimensions) {
             this.precision = precision;
             this.indexingTimeMs = indexingTimeMs;
             this.searchTimeMs = searchTimeMs;
@@ -96,8 +89,7 @@ public class USearchBenchmark {
         public final Map<Integer, Double> ndcgAtK;
         public final long searchTimeMs;
 
-        public SearchMetrics(
-                Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long searchTimeMs) {
+        public SearchMetrics(Map<Integer, Double> recallAtK, Map<Integer, Double> ndcgAtK, long searchTimeMs) {
             this.recallAtK = recallAtK;
             this.ndcgAtK = ndcgAtK;
             this.searchTimeMs = searchTimeMs;
@@ -115,64 +107,44 @@ public class USearchBenchmark {
     public Map<BenchmarkConfig.Precision, BenchmarkResult> runBenchmarks() throws Exception {
         Map<BenchmarkConfig.Precision, BenchmarkResult> results = new HashMap<>();
 
-        System.out.println(
-                "\n🔍 Starting USearch benchmarks for dataset: "
-                        + dataset.getDefinition().getName());
+        System.out.println("\n🔍 Starting USearch benchmarks for dataset: " + dataset.getDefinition().getName());
 
         // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors... ");
-        int maxBaseVectors =
-                config.getMaxVectors() > 0
-                        ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
-                        : -1;
-        BinaryVectorLoader.VectorDataset baseVectors =
-                BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0, maxBaseVectors);
-        BinaryVectorLoader.VectorDataset queryVectors =
-                BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
+        int maxBaseVectors = config.getMaxVectors() > 0
+                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
+                : -1;
+        BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
+                maxBaseVectors);
+        BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
         System.out.println("✅ Done");
 
         int numBaseVectors = baseVectors.getRows();
         if (maxBaseVectors > 0) {
             System.out.println(
-                    "🔢 Limiting base vectors to "
-                            + String.format("%,d", numBaseVectors)
-                            + " for faster testing");
+                    "🔢 Limiting base vectors to " + String.format("%,d", numBaseVectors) + " for faster testing");
         }
 
-        System.out.println(
-                "📊 Using "
-                        + String.format("%,d", numBaseVectors)
-                        + " base vectors and "
-                        + String.format("%,d", queryVectors.getRows())
-                        + " query vectors");
+        System.out.println("📊 Using " + String.format("%,d", numBaseVectors) + " base vectors and "
+                + String.format("%,d", queryVectors.getRows()) + " query vectors");
 
         // Limit number of queries for benchmarking
         int numQueries = Math.min(config.getNumQueries(), queryVectors.getRows());
         for (BenchmarkConfig.Precision precision : config.getPrecisions()) {
-            System.out.println(
-                    String.format(
-                            "\n⚙️ Running USearch benchmark with precision: %s",
-                            precision.getName()));
+            System.out.println(String.format("\n⚙️ Running USearch benchmark with precision: %s", precision.getName()));
 
             try {
-                BenchmarkResult result =
-                        runSingleBenchmark(
-                                baseVectors, queryVectors, precision, numQueries, numBaseVectors);
+                BenchmarkResult result = runSingleBenchmark(baseVectors, queryVectors, precision, numQueries,
+                        numBaseVectors);
                 results.put(precision, result);
 
-                System.out.println(
-                        String.format(
-                                "✅ %s completed - Indexing: %,dms, Search: %,dms, Throughput: %,.0f QPS",
-                                precision.getName(),
-                                result.getIndexingTimeMs(),
-                                result.getSearchTimeMs(),
-                                result.getThroughputQPS()));
+                System.out.println(String.format(
+                        "✅ %s completed - Indexing: %,dms, Search: %,dms, Throughput: %,.0f QPS", precision.getName(),
+                        result.getIndexingTimeMs(), result.getSearchTimeMs(), result.getThroughputQPS()));
 
             } catch (Exception e) {
-                System.err.println(
-                        String.format(
-                                "❌ Failed to run USearch benchmark for precision %s: %s",
-                                precision.getName(), e.getMessage()));
+                System.err.println(String.format("❌ Failed to run USearch benchmark for precision %s: %s",
+                        precision.getName(), e.getMessage()));
                 throw e;
             }
         }
@@ -180,13 +152,9 @@ public class USearchBenchmark {
         return results;
     }
 
-    private BenchmarkResult runSingleBenchmark(
-            BinaryVectorLoader.VectorDataset baseVectors,
-            BinaryVectorLoader.VectorDataset queryVectors,
-            BenchmarkConfig.Precision precision,
-            int numQueries,
-            int numBaseVectors)
-            throws Exception {
+    private BenchmarkResult runSingleBenchmark(BinaryVectorLoader.VectorDataset baseVectors,
+            BinaryVectorLoader.VectorDataset queryVectors, BenchmarkConfig.Precision precision, int numQueries,
+            int numBaseVectors) throws Exception {
 
         // Set metric based on dataset
         String metric = dataset.getDefinition().getMetric().toLowerCase();
@@ -205,52 +173,43 @@ public class USearchBenchmark {
         // Set precision-specific quantization
         String quantization;
         switch (precision) {
-            case F32:
+            case F32 :
                 quantization = Index.Quantization.FLOAT32;
                 break;
-            case F16:
+            case F16 :
                 quantization = Index.Quantization.FLOAT16;
                 break;
-            case BF16:
+            case BF16 :
                 quantization = Index.Quantization.BFLOAT16;
                 break;
-            case I8:
+            case I8 :
                 quantization = Index.Quantization.INT8;
                 break;
-            default:
+            default :
                 quantization = Index.Quantization.FLOAT32;
         }
 
         // Determine input format based on dataset, NOT quantization
         BinaryVectorLoader.VectorType vectorType = baseVectors.getType();
-        boolean useByteData =
-                vectorType == BinaryVectorLoader.VectorType.INT8
-                        || vectorType == BinaryVectorLoader.VectorType.UINT8
-                        || vectorType == BinaryVectorLoader.VectorType.UINT8_BIN;
+        boolean useByteData = vectorType == BinaryVectorLoader.VectorType.INT8
+                || vectorType == BinaryVectorLoader.VectorType.UINT8
+                || vectorType == BinaryVectorLoader.VectorType.UINT8_BIN;
 
-        System.out.println(
-                String.format(
-                        "🔧 Creating USearch index: %,d vectors, %d dims, %s metric, %s precision",
-                        numBaseVectors, baseVectors.getCols(), usearchMetric, quantization));
+        System.out.println(String.format("🔧 Creating USearch index: %,d vectors, %d dims, %s metric, %s precision",
+                numBaseVectors, baseVectors.getCols(), usearchMetric, quantization));
 
         // Check available memory before creating index
         Runtime runtime = Runtime.getRuntime();
         long maxMemory = runtime.maxMemory();
         long freeMemory = runtime.freeMemory();
-        long estimatedMemoryNeeded =
-                (long) numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough
+        long estimatedMemoryNeeded = (long) numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough
         // estimate
 
-        System.out.println(
-                String.format(
-                        "💾 Memory: Max: %,d MB, Free: %,d MB, Estimated needed: %,d MB",
-                        maxMemory / (1024 * 1024),
-                        freeMemory / (1024 * 1024),
-                        estimatedMemoryNeeded / (1024 * 1024)));
+        System.out.println(String.format("💾 Memory: Max: %,d MB, Free: %,d MB, Estimated needed: %,d MB",
+                maxMemory / (1024 * 1024), freeMemory / (1024 * 1024), estimatedMemoryNeeded / (1024 * 1024)));
 
         if (estimatedMemoryNeeded > maxMemory * 0.8) {
-            System.out.println(
-                    "⚠️ Warning: Estimated memory usage is very high. Consider reducing --max-vectors");
+            System.out.println("⚠️ Warning: Estimated memory usage is very high. Consider reducing --max-vectors");
         }
 
         String version = Index.version();
@@ -263,13 +222,7 @@ public class USearchBenchmark {
         System.out.println("⚙️ Compiled capabilities: " + String.join(", ", compiled));
         System.out.println("🔧 Available capabilities: " + String.join(", ", available));
 
-        try (Index index =
-                createIndex(
-                        usearchMetric,
-                        quantization,
-                        baseVectors.getCols(),
-                        numBaseVectors,
-                        config)) {
+        try (Index index = createIndex(usearchMetric, quantization, baseVectors.getCols(), numBaseVectors, config)) {
 
             // Log hardware acceleration info
             System.out.println("🚀 Hardware acceleration: " + index.hardwareAcceleration());
@@ -279,20 +232,14 @@ public class USearchBenchmark {
             long memoryBefore = getMemoryUsage(index);
 
             // Determine optimal thread count (cap at reasonable number for JNI overhead)
-            int numThreads =
-                    config.getNumThreads() != -1
-                            ? config.getNumThreads()
-                            : ForkJoinPool.commonPool().getParallelism();
-            System.out.println(
-                    "🧵 Using "
-                            + numThreads
-                            + " threads for indexing ("
-                            + ForkJoinPool.commonPool().getParallelism()
-                            + " available)");
+            int numThreads = config.getNumThreads() != -1
+                    ? config.getNumThreads()
+                    : ForkJoinPool.commonPool().getParallelism();
+            System.out.println("🧵 Using " + numThreads + " threads for indexing ("
+                    + ForkJoinPool.commonPool().getParallelism() + " available)");
 
             // Parallel indexing using ForkJoinPool
-            ProgressLogger indexProgress =
-                    new ProgressLogger("Indexing " + precision.getName(), numBaseVectors);
+            ProgressLogger indexProgress = new ProgressLogger("Indexing " + precision.getName(), numBaseVectors);
 
             if (numThreads == 1) {
                 // Single-threaded fallback - reuse buffer
@@ -320,47 +267,32 @@ public class USearchBenchmark {
                     int remainingVectors = numBaseVectors % numThreads;
 
                     for (int threadId = 0; threadId < numThreads; threadId++) {
-                        final int startIdx =
-                                threadId * vectorsPerThread + Math.min(threadId, remainingVectors);
-                        final int endIdx =
-                                startIdx + vectorsPerThread + (threadId < remainingVectors ? 1 : 0);
+                        final int startIdx = threadId * vectorsPerThread + Math.min(threadId, remainingVectors);
+                        final int endIdx = startIdx + vectorsPerThread + (threadId < remainingVectors ? 1 : 0);
                         final int finalThreadId = threadId;
 
-                        CompletableFuture<Void> future =
-                                CompletableFuture.runAsync(
-                                        () -> {
-                                            try {
-                                                if (useByteData) {
-                                                    byte[] byteBuffer =
-                                                            new byte[baseVectors.getCols()];
-                                                    for (int i = startIdx; i < endIdx; i++) {
-                                                        baseVectors.getVectorAsByte(i, byteBuffer);
-                                                        index.add(i, byteBuffer);
-                                                        indexProgress.increment();
-                                                    }
-                                                } else {
-                                                    float[] floatBuffer =
-                                                            new float[baseVectors.getCols()];
-                                                    for (int i = startIdx; i < endIdx; i++) {
-                                                        baseVectors.getVectorAsFloat(
-                                                                i, floatBuffer);
-                                                        index.add(i, floatBuffer);
-                                                        indexProgress.increment();
-                                                    }
-                                                }
-                                            } catch (Exception e) {
-                                                throw new RuntimeException(
-                                                        "Indexing failed in thread "
-                                                                + finalThreadId
-                                                                + " (range "
-                                                                + startIdx
-                                                                + "-"
-                                                                + endIdx
-                                                                + ")",
-                                                        e);
-                                            }
-                                        },
-                                        customThreadPool);
+                        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                            try {
+                                if (useByteData) {
+                                    byte[] byteBuffer = new byte[baseVectors.getCols()];
+                                    for (int i = startIdx; i < endIdx; i++) {
+                                        baseVectors.getVectorAsByte(i, byteBuffer);
+                                        index.add(i, byteBuffer);
+                                        indexProgress.increment();
+                                    }
+                                } else {
+                                    float[] floatBuffer = new float[baseVectors.getCols()];
+                                    for (int i = startIdx; i < endIdx; i++) {
+                                        baseVectors.getVectorAsFloat(i, floatBuffer);
+                                        index.add(i, floatBuffer);
+                                        indexProgress.increment();
+                                    }
+                                }
+                            } catch (Exception e) {
+                                throw new RuntimeException("Indexing failed in thread " + finalThreadId + " (range "
+                                        + startIdx + "-" + endIdx + ")", e);
+                            }
+                        }, customThreadPool);
 
                         futures.add(future);
                     }
@@ -382,9 +314,8 @@ public class USearchBenchmark {
 
             // Calculate search metrics (includes both search and accuracy calculation)
             System.out.print("🔍 Searching... ");
-            SearchMetrics metrics =
-                    calculateSearchMetrics(
-                            index, queryVectors, numQueries, config.getKValues(), useByteData);
+            SearchMetrics metrics = calculateSearchMetrics(index, queryVectors, numQueries, config.getKValues(),
+                    useByteData);
             System.out.println("✅ Done");
 
             // Use the actual search time from metrics (excludes accuracy calculation)
@@ -393,26 +324,13 @@ public class USearchBenchmark {
             // Calculate throughput based on actual search time
             double throughputQPS = numQueries / (searchTime / 1000.0);
 
-            return new BenchmarkResult(
-                    precision,
-                    indexingTime,
-                    searchTime,
-                    throughputQPS,
-                    metrics.recallAtK,
-                    metrics.ndcgAtK,
-                    memoryUsage,
-                    numBaseVectors,
-                    baseVectors.getCols());
+            return new BenchmarkResult(precision, indexingTime, searchTime, throughputQPS, metrics.recallAtK,
+                    metrics.ndcgAtK, memoryUsage, numBaseVectors, baseVectors.getCols());
         }
     }
 
-    private SearchMetrics calculateSearchMetrics(
-            Index index,
-            BinaryVectorLoader.VectorDataset queryVectors,
-            int numQueries,
-            int[] kValues,
-            boolean useByteData)
-            throws Exception {
+    private SearchMetrics calculateSearchMetrics(Index index, BinaryVectorLoader.VectorDataset queryVectors,
+            int numQueries, int[] kValues, boolean useByteData) throws Exception {
 
         // Try to load ground truth if available
         BinaryVectorLoader.GroundTruth groundTruth = null;
@@ -423,9 +341,7 @@ public class USearchBenchmark {
                 logger.info("Using ground truth for accurate recall calculation");
             }
         } catch (Exception e) {
-            logger.warn(
-                    "Could not load ground truth, using simplified recall calculation: {}",
-                    e.getMessage());
+            logger.warn("Could not load ground truth, using simplified recall calculation: {}", e.getMessage());
         }
 
         if (groundTruth == null) {
@@ -451,10 +367,9 @@ public class USearchBenchmark {
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
         // Use all available threads for search
-        int numThreads =
-                config.getNumThreads() != -1
-                        ? config.getNumThreads()
-                        : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
+        int numThreads = config.getNumThreads() != -1
+                ? config.getNumThreads()
+                : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
         System.out.println("🔍 Using " + numThreads + " threads for search");
 
         // SINGLE SEARCH with maximum K - no accuracy calculations during timing
@@ -487,48 +402,32 @@ public class USearchBenchmark {
                 int remainingQueries = numQueries % numThreads;
 
                 for (int threadId = 0; threadId < numThreads; threadId++) {
-                    final int startIdx =
-                            threadId * queriesPerThread + Math.min(threadId, remainingQueries);
-                    final int endIdx =
-                            startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
+                    final int startIdx = threadId * queriesPerThread + Math.min(threadId, remainingQueries);
+                    final int endIdx = startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
                     final int finalThreadId = threadId;
 
-                    CompletableFuture<Void> future =
-                            CompletableFuture.runAsync(
-                                    () -> {
-                                        try {
-                                            if (useByteData) {
-                                                byte[] queryBuffer =
-                                                        new byte[queryVectors.getCols()];
-                                                for (int i = startIdx; i < endIdx; i++) {
-                                                    queryVectors.getVectorAsByte(i, queryBuffer);
-                                                    allSearchResults[i] =
-                                                            index.search(queryBuffer, maxK);
-                                                    searchProgress.increment();
-                                                }
-                                            } else {
-                                                float[] queryBuffer =
-                                                        new float[queryVectors.getCols()];
-                                                for (int i = startIdx; i < endIdx; i++) {
-                                                    queryVectors.getVectorAsFloat(i, queryBuffer);
-                                                    allSearchResults[i] =
-                                                            index.search(queryBuffer, maxK);
-                                                    searchProgress.increment();
-                                                }
-                                            }
-                                        } catch (Exception e) {
-                                            throw new RuntimeException(
-                                                    "Search failed in thread "
-                                                            + finalThreadId
-                                                            + " (range "
-                                                            + startIdx
-                                                            + "-"
-                                                            + endIdx
-                                                            + ")",
-                                                    e);
-                                        }
-                                    },
-                                    customThreadPool);
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            if (useByteData) {
+                                byte[] queryBuffer = new byte[queryVectors.getCols()];
+                                for (int i = startIdx; i < endIdx; i++) {
+                                    queryVectors.getVectorAsByte(i, queryBuffer);
+                                    allSearchResults[i] = index.search(queryBuffer, maxK);
+                                    searchProgress.increment();
+                                }
+                            } else {
+                                float[] queryBuffer = new float[queryVectors.getCols()];
+                                for (int i = startIdx; i < endIdx; i++) {
+                                    queryVectors.getVectorAsFloat(i, queryBuffer);
+                                    allSearchResults[i] = index.search(queryBuffer, maxK);
+                                    searchProgress.increment();
+                                }
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException("Search failed in thread " + finalThreadId + " (range "
+                                    + startIdx + "-" + endIdx + ")", e);
+                        }
+                    }, customThreadPool);
 
                     futures.add(future);
                 }
@@ -555,8 +454,7 @@ public class USearchBenchmark {
         for (int k : kValues) {
             double totalRecall = 0.0;
             double totalNdcg = 0.0;
-            int validQueries =
-                    groundTruth != null ? Math.min(numQueries, groundTruth.getNumQueries()) : 0;
+            int validQueries = groundTruth != null ? Math.min(numQueries, groundTruth.getNumQueries()) : 0;
 
             for (int i = 0; i < validQueries; i++) {
                 long[] allResults = allSearchResults[i];
@@ -586,32 +484,18 @@ public class USearchBenchmark {
         return new SearchMetrics(recallResults, ndcgResults, searchTime);
     }
 
-    private Index createIndex(
-            String metric,
-            String quantization,
-            int dimensions,
-            int numVectors,
-            BenchmarkConfig config)
-            throws Exception {
+    private Index createIndex(String metric, String quantization, int dimensions, int numVectors,
+            BenchmarkConfig config) throws Exception {
         try {
-            return new Index.Config()
-                    .metric(metric)
-                    .quantization(quantization)
-                    .dimensions(dimensions)
-                    .capacity(numVectors)
-                    .build();
+            return new Index.Config().metric(metric).quantization(quantization).dimensions(dimensions)
+                    .capacity(numVectors).build();
         } catch (Error e) {
-            String errorMsg =
-                    String.format(
-                            "Failed to create USearch index for %,d vectors.\n"
-                                    + "Suggestions:\n"
-                                    + "  1. Reduce vectors: gradle run --args=\"%s --max-vectors 100000\"\n"
-                                    + "  2. Increase heap: Add -Xmx16g to JAVA_OPTS\n"
-                                    + "  3. Use INT8 precision for lower memory usage\n"
-                                    + "Error: %s",
-                            numVectors,
-                            System.getProperty("dataset.name", "dataset"),
-                            e.getMessage());
+            String errorMsg = String.format(
+                    "Failed to create USearch index for %,d vectors.\n" + "Suggestions:\n"
+                            + "  1. Reduce vectors: gradle run --args=\"%s --max-vectors 100000\"\n"
+                            + "  2. Increase heap: Add -Xmx16g to JAVA_OPTS\n"
+                            + "  3. Use INT8 precision for lower memory usage\n" + "Error: %s",
+                    numVectors, System.getProperty("dataset.name", "dataset"), e.getMessage());
             throw new Exception(errorMsg, e);
         }
     }
@@ -636,8 +520,7 @@ public class USearchBenchmark {
         return jvmMemory + nativeMemory;
     }
 
-    public static void logBenchmarkResults(
-            Map<BenchmarkConfig.Precision, BenchmarkResult> results) {
+    public static void logBenchmarkResults(Map<BenchmarkConfig.Precision, BenchmarkResult> results) {
         System.out.println("=== USearch Benchmark Results ===");
 
         // Sort by precision for consistent output
@@ -648,25 +531,18 @@ public class USearchBenchmark {
             BenchmarkResult result = results.get(precision);
 
             System.out.println("Precision: " + precision.getName());
-            System.out.println(
-                    String.format("  Indexing Time: %,d ms", result.getIndexingTimeMs()));
+            System.out.println(String.format("  Indexing Time: %,d ms", result.getIndexingTimeMs()));
             System.out.println(String.format("  Search Time: %,d ms", result.getSearchTimeMs()));
-            System.out.println(
-                    String.format("  Indexing Throughput: %,.0f IPS", result.getThroughputIPS()));
-            System.out.println(
-                    String.format("  Search Throughput: %,.0f QPS", result.getThroughputQPS()));
-            System.out.println(
-                    String.format(
-                            "  Memory Usage: %,d MB",
-                            Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
+            System.out.println(String.format("  Indexing Throughput: %,.0f IPS", result.getThroughputIPS()));
+            System.out.println(String.format("  Search Throughput: %,.0f QPS", result.getThroughputQPS()));
+            System.out.println(String.format("  Memory Usage: %,d MB",
+                    Math.round(result.getMemoryUsageBytes() / (1024.0 * 1024.0))));
 
             for (Map.Entry<Integer, Double> entry : result.getRecallAtK().entrySet()) {
                 int k = entry.getKey();
                 double recall = entry.getValue() * 100.0; // Convert to percentage
-                double ndcg =
-                        result.getNDCGAtK().getOrDefault(k, 0.0) * 100.0; // Convert to percentage
-                System.out.println(
-                        String.format("  Recall@%d: %.2f%%, NDCG@%d: %.2f%%", k, recall, k, ndcg));
+                double ndcg = result.getNDCGAtK().getOrDefault(k, 0.0) * 100.0; // Convert to percentage
+                System.out.println(String.format("  Recall@%d: %.2f%%, NDCG@%d: %.2f%%", k, recall, k, ndcg));
             }
 
             System.out.println();

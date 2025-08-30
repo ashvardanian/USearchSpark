@@ -189,6 +189,12 @@ This creates a 3-node Kubernetes cluster locally and runs the benchmark in a tru
 
 ## Contributing
 
+- Code style: 120 chars/line using Eclipse JDT via Spotless. Config lives in `java-format.xml`.
+- Formatting: run `gradle spotlessApply` before pushing changes.
+- IDEs:
+  - IntelliJ IDEA: import Eclipse formatter XML (Settings > Editor > Code Style > Java > Scheme > Import).
+  - Eclipse: import `java-format.xml` (Preferences > Java > Code Style > Formatter > Import).
+
 ```bash
-gradle spotlessApply # in case you want to format changes before pushing
+gradle spotlessApply
 ```

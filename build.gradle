@@ -200,7 +200,8 @@ task fatJar(type: Jar) {
 spotless {
     java {
         target 'src/**/*.java'
-        googleJavaFormat('1.17.0').aosp().skipJavadocFormatting()
+        // Use Eclipse JDT formatter with repo config to allow 120-char lines
+        eclipse().configFile('java-format.xml')
         removeUnusedImports()
         trimTrailingWhitespace()
         endWithNewline()

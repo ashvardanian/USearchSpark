@@ -15,12 +15,11 @@ public class BinaryVectorLoader {
     private static final Logger logger = LoggerFactory.getLogger(BinaryVectorLoader.class);
 
     public enum VectorType {
-        FLOAT32(".fbin", 4, Float.BYTES),
-        FLOAT64(".dbin", 8, Double.BYTES),
-        FLOAT16(".hbin", 2, 2), // Half precision
-        INT32(".ibin", 4, Integer.BYTES),
-        UINT8(".bbin", 1, Byte.BYTES),
-        INT8(".i8bin", 1, Byte.BYTES), // Signed 8-bit integers (SPACEV format)
+        FLOAT32(".fbin", 4, Float.BYTES), FLOAT64(".dbin", 8, Double.BYTES), FLOAT16(".hbin", 2, 2), // Half precision
+        INT32(".ibin", 4, Integer.BYTES), UINT8(".bbin", 1, Byte.BYTES), INT8(".i8bin", 1, Byte.BYTES), // Signed 8-bit
+                                                                                                        // integers
+                                                                                                        // (SPACEV
+                                                                                                        // format)
         FLOAT32_BIN(".f32bin", 4, Float.BYTES), // Alternative F32 format (SpaceV distances)
         INT32_BIN(".i32bin", 4, Integer.BYTES), // Alternative I32 format (SpaceV ground truth)
         UINT8_BIN(".u8bin", 1, Byte.BYTES); // Alternative uint8 format
@@ -66,12 +65,7 @@ public class BinaryVectorLoader {
         private final int startRow;
         private final long segmentSize;
 
-        public VectorDataset(
-                int rows,
-                int cols,
-                VectorType type,
-                ByteBuffer[] segments,
-                int startRow,
+        public VectorDataset(int rows, int cols, VectorType type, ByteBuffer[] segments, int startRow,
                 long segmentSize) {
             this.rows = rows;
             this.cols = cols;
@@ -83,7 +77,7 @@ public class BinaryVectorLoader {
 
         // Backward compatibility constructor for single segment
         public VectorDataset(int rows, int cols, VectorType type, ByteBuffer data, int startRow) {
-            this(rows, cols, type, new ByteBuffer[] {data}, startRow, data.remaining());
+            this(rows, cols, type, new ByteBuffer[]{data}, startRow, data.remaining());
         }
 
         public int getRows() {
@@ -118,46 +112,45 @@ public class BinaryVectorLoader {
                 throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
             }
             if (result.length < cols) {
-                throw new IllegalArgumentException(
-                        "Buffer too small: " + result.length + " < " + cols);
+                throw new IllegalArgumentException("Buffer too small: " + result.length + " < " + cols);
             }
 
             long offset = (long) index * cols * type.getByteSize();
 
             switch (type) {
-                case FLOAT32:
+                case FLOAT32 :
                     for (int i = 0; i < cols; i++) {
                         result[i] = getFloat(offset + i * Float.BYTES);
                     }
                     break;
-                case FLOAT64:
+                case FLOAT64 :
                     for (int i = 0; i < cols; i++) {
                         result[i] = (float) getDouble(offset + i * Double.BYTES);
                     }
                     break;
-                case INT32:
+                case INT32 :
                     for (int i = 0; i < cols; i++) {
                         result[i] = (float) getInt(offset + i * Integer.BYTES);
                     }
                     break;
-                case INT8:
+                case INT8 :
                     for (int i = 0; i < cols; i++) {
                         result[i] = (float) getByte(offset + i); // Signed byte
                     }
                     break;
-                case UINT8:
-                case UINT8_BIN:
+                case UINT8 :
+                case UINT8_BIN :
                     for (int i = 0; i < cols; i++) {
                         result[i] = (float) (getByte(offset + i) & 0xFF); // Unsigned byte
                     }
                     break;
-                case FLOAT16:
+                case FLOAT16 :
                     for (int i = 0; i < cols; i++) {
                         short halfFloat = getShort(offset + i * 2);
                         result[i] = halfFloatToFloat(halfFloat);
                     }
                     break;
-                default:
+                default :
                     throw new UnsupportedOperationException("Unsupported vector type: " + type);
             }
         }
@@ -252,26 +245,25 @@ public class BinaryVectorLoader {
                 throw new IndexOutOfBoundsException("Vector index " + index + " >= " + rows);
             }
             if (result.length < cols) {
-                throw new IllegalArgumentException(
-                        "Buffer too small: " + result.length + " < " + cols);
+                throw new IllegalArgumentException("Buffer too small: " + result.length + " < " + cols);
             }
 
             long offset = (long) index * cols * type.getByteSize();
 
             switch (type) {
-                case INT8:
+                case INT8 :
                     for (int i = 0; i < cols; i++) {
                         result[i] = getByte(offset + i);
                     }
                     break;
-                case FLOAT32:
+                case FLOAT32 :
                     // Convert float to byte for I8 quantization
                     for (int i = 0; i < cols; i++) {
                         float value = getFloat(offset + i * Float.BYTES);
                         result[i] = (byte) Math.round(value * 127.0f);
                     }
                     break;
-                default:
+                default :
                     // Convert other types to byte via float - use reusable buffer
                     float[] tempFloatBuffer = new float[cols];
                     getVectorAsFloat(index, tempFloatBuffer);
@@ -299,8 +291,7 @@ public class BinaryVectorLoader {
         return loadVectors(filePath, 0, -1);
     }
 
-    public static VectorDataset loadVectors(String filePath, int startRow, int maxRows)
-            throws IOException {
+    public static VectorDataset loadVectors(String filePath, int startRow, int maxRows) throws IOException {
         Path path = Paths.get(filePath);
         VectorType type = VectorType.fromPath(filePath);
 
@@ -317,11 +308,9 @@ public class BinaryVectorLoader {
 
             logger.debug("Dataset dimensions: {} x {} ({})", totalRows, cols, type);
 
-            int actualRows =
-                    maxRows > 0 ? Math.min(maxRows, totalRows - startRow) : totalRows - startRow;
+            int actualRows = maxRows > 0 ? Math.min(maxRows, totalRows - startRow) : totalRows - startRow;
             if (startRow >= totalRows) {
-                throw new IndexOutOfBoundsException(
-                        "Start row " + startRow + " >= total rows " + totalRows);
+                throw new IndexOutOfBoundsException("Start row " + startRow + " >= total rows " + totalRows);
             }
 
             // Calculate data size and offset
@@ -345,23 +334,17 @@ public class BinaryVectorLoader {
                 segments = new ByteBuffer[numSegments];
                 segmentSize = maxSegmentSize;
 
-                logger.info(
-                        "Large file detected ({} GB). Creating {} memory-mapped segments of {} MB each",
-                        String.format("%.1f", readSize / (1024 * 1024 * 1024.0)),
-                        numSegments,
+                logger.info("Large file detected ({} GB). Creating {} memory-mapped segments of {} MB each",
+                        String.format("%.1f", readSize / (1024 * 1024 * 1024.0)), numSegments,
                         String.format("%.0f", maxSegmentSize / (1024 * 1024.0)));
 
                 // Create multiple memory-mapped segments
                 for (int i = 0; i < numSegments; i++) {
                     long segmentOffset = startOffset + (i * maxSegmentSize);
-                    long currentSegmentSize =
-                            Math.min(maxSegmentSize, readSize - (i * maxSegmentSize));
+                    long currentSegmentSize = Math.min(maxSegmentSize, readSize - (i * maxSegmentSize));
 
-                    MappedByteBuffer segment =
-                            channel.map(
-                                    FileChannel.MapMode.READ_ONLY,
-                                    segmentOffset,
-                                    currentSegmentSize);
+                    MappedByteBuffer segment = channel.map(FileChannel.MapMode.READ_ONLY, segmentOffset,
+                            currentSegmentSize);
                     segment.order(ByteOrder.LITTLE_ENDIAN);
                     segments[i] = segment;
                 }
@@ -370,16 +353,12 @@ public class BinaryVectorLoader {
                 segments = new ByteBuffer[1];
                 segmentSize = readSize;
 
-                MappedByteBuffer segment =
-                        channel.map(FileChannel.MapMode.READ_ONLY, startOffset, readSize);
+                MappedByteBuffer segment = channel.map(FileChannel.MapMode.READ_ONLY, startOffset, readSize);
                 segment.order(ByteOrder.LITTLE_ENDIAN);
                 segments[0] = segment;
             }
 
-            logger.debug(
-                    "Loaded {} vectors starting from row {} using {} segment(s)",
-                    actualRows,
-                    startRow,
+            logger.debug("Loaded {} vectors starting from row {} using {} segment(s)", actualRows, startRow,
                     segments.length);
             return new VectorDataset(actualRows, cols, type, segments, startRow, segmentSize);
         }
@@ -485,8 +464,7 @@ public class BinaryVectorLoader {
 
         public int[] getNeighbors(int queryIndex) {
             if (queryIndex >= numQueries) {
-                throw new IndexOutOfBoundsException(
-                        "Query index " + queryIndex + " >= " + numQueries);
+                throw new IndexOutOfBoundsException("Query index " + queryIndex + " >= " + numQueries);
             }
 
             int[] neighbors = new int[k];
@@ -497,8 +475,7 @@ public class BinaryVectorLoader {
                     neighbors[i] = data.getInt(offset + i * Integer.BYTES);
                 }
             } else {
-                throw new UnsupportedOperationException(
-                        "Ground truth type " + type + " not supported");
+                throw new UnsupportedOperationException("Ground truth type " + type + " not supported");
             }
 
             return neighbors;
@@ -506,8 +483,7 @@ public class BinaryVectorLoader {
 
         public float[] getDistances(int queryIndex) {
             if (type != VectorType.FLOAT32 && type != VectorType.FLOAT32_BIN) {
-                throw new UnsupportedOperationException(
-                        "Distance extraction only supported for FLOAT32 ground truth");
+                throw new UnsupportedOperationException("Distance extraction only supported for FLOAT32 ground truth");
             }
 
             float[] distances = new float[k];
@@ -564,8 +540,7 @@ public class BinaryVectorLoader {
             int numQueries = header.getInt();
             int k = header.getInt();
 
-            logger.debug(
-                    "Ground truth dimensions: {} queries x {} neighbors ({})", numQueries, k, type);
+            logger.debug("Ground truth dimensions: {} queries x {} neighbors ({})", numQueries, k, type);
 
             long dataSize = (long) numQueries * k * type.getByteSize();
             ByteBuffer data = ByteBuffer.allocate((int) dataSize).order(ByteOrder.LITTLE_ENDIAN);
@@ -581,8 +556,7 @@ public class BinaryVectorLoader {
         VectorType type = VectorType.fromPath(filePath);
 
         if (type != VectorType.INT32 && type != VectorType.INT32_BIN) {
-            throw new IllegalArgumentException(
-                    "Vector IDs must be INT32 or INT32_BIN format, got: " + type);
+            throw new IllegalArgumentException("Vector IDs must be INT32 or INT32_BIN format, got: " + type);
         }
 
         logger.debug("Loading vector IDs file: {}", filePath);
@@ -596,8 +570,7 @@ public class BinaryVectorLoader {
             int cols = header.getInt();
 
             if (cols != 1) {
-                throw new IllegalArgumentException(
-                        "Expected 1 column for vector IDs, got: " + cols);
+                throw new IllegalArgumentException("Expected 1 column for vector IDs, got: " + cols);
             }
 
             logger.info("Vector IDs: {} entries", numVectors);
@@ -612,12 +585,11 @@ public class BinaryVectorLoader {
     }
 
     /**
-     * Calculate Recall@k following true USearch methodology.
-     * Measures whether the #1 ground truth neighbor appears anywhere in the top-k results.
-     * Returns 1.0 if found, 0.0 if not found (binary per query, averaged across queries).
+     * Calculate Recall@k following true USearch methodology. Measures whether the #1 ground truth neighbor appears
+     * anywhere in the top-k results. Returns 1.0 if found, 0.0 if not found (binary per query, averaged across
+     * queries).
      */
-    public static double calculateRecallAtK(
-            GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
+    public static double calculateRecallAtK(GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
         if (searchResults.length == 0 || k == 0) {
             return 0.0;
         }
@@ -641,12 +613,11 @@ public class BinaryVectorLoader {
     }
 
     /**
-     * Calculate NDCG@k (Normalized Discounted Cumulative Gain) following USearch methodology.
-     * Only considers top-k ground truth as relevant items (not exhaustive recall).
-     * NDCG considers the position of correct results - earlier positions get higher scores.
+     * Calculate NDCG@k (Normalized Discounted Cumulative Gain) following USearch methodology. Only considers top-k
+     * ground truth as relevant items (not exhaustive recall). NDCG considers the position of correct results - earlier
+     * positions get higher scores.
      */
-    public static double calculateNDCGAtK(
-            GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
+    public static double calculateNDCGAtK(GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
         if (searchResults.length == 0 || k == 0) {
             return 0.0;
         }

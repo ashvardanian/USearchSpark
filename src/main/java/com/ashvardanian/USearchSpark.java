@@ -17,16 +17,13 @@ public class USearchSpark {
         try {
             BenchmarkConfig config = BenchmarkConfig.parseArgs(args);
 
-            spark =
-                    SparkSession.builder()
-                            .appName("USearchSpark - Vector Search Benchmark")
-                            .master("local[*]") // Use all available cores
-                            .config(
-                                    "spark.serializer",
-                                    "org.apache.spark.serializer.KryoSerializer")
-                            .config("spark.sql.adaptive.enabled", "true")
-                            .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-                            .getOrCreate();
+            spark = SparkSession.builder().appName("USearchSpark - Vector Search Benchmark").master("local[*]") // Use
+                                                                                                                // all
+                                                                                                                // available
+                                                                                                                // cores
+                    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                    .config("spark.sql.adaptive.enabled", "true")
+                    .config("spark.sql.adaptive.coalescePartitions.enabled", "true").getOrCreate();
 
             logger.info("Starting USearchSpark Vector Search Benchmark:");
             logger.info("  Dataset: {}", config.getDatasetName());
@@ -50,8 +47,7 @@ public class USearchSpark {
     }
 
     private static void printHelp() {
-        String help =
-                """
+        String help = """
                 USearchSpark - Vector Search Benchmark (USearch vs Lucene HNSW)
 
                 USAGE
