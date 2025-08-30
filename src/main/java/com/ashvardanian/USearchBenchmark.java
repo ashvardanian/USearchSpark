@@ -428,6 +428,10 @@ public class USearchBenchmark {
                     e.getMessage());
         }
 
+        if (groundTruth == null) {
+            System.out.println("⚠️ No ground truth available - accuracy metrics will be zero");
+        }
+
         // Try to load vector IDs if available
         BinaryVectorLoader.VectorIds vectorIds = null;
         try {
@@ -551,43 +555,32 @@ public class USearchBenchmark {
         for (int k : kValues) {
             double totalRecall = 0.0;
             double totalNdcg = 0.0;
+            int validQueries =
+                    groundTruth != null ? Math.min(numQueries, groundTruth.getNumQueries()) : 0;
 
-            for (int i = 0; i < numQueries; i++) {
+            for (int i = 0; i < validQueries; i++) {
                 long[] allResults = allSearchResults[i];
-
-                // Truncate results to current K (prefix of the max-K search results)
                 int actualK = Math.min(k, allResults.length);
                 long[] resultsAtK = Arrays.copyOf(allResults, actualK);
 
-                // Calculate recall using ground truth if available
-                double queryRecall;
-                double queryNdcg = 0.0;
-                if (groundTruth != null && i < groundTruth.getNumQueries()) {
-                    // Convert long[] to int[] and map through vector IDs if available
-                    int[] intResults = new int[actualK];
-                    for (int j = 0; j < actualK; j++) {
-                        int vectorIndex = (int) resultsAtK[j];
-                        // Map through vector IDs if available (for subset support)
-                        if (vectorIds != null && vectorIndex < vectorIds.getNumVectors()) {
-                            intResults[j] = vectorIds.getId(vectorIndex);
-                        } else {
-                            intResults[j] = vectorIndex;
-                        }
+                // Convert long[] to int[] and map through vector IDs if available
+                int[] intResults = new int[actualK];
+                for (int j = 0; j < actualK; j++) {
+                    int vectorIndex = (int) resultsAtK[j];
+                    // Map through vector IDs if available (for subset support)
+                    if (vectorIds != null && vectorIndex < vectorIds.getNumVectors()) {
+                        intResults[j] = vectorIds.getId(vectorIndex);
+                    } else {
+                        intResults[j] = vectorIndex;
                     }
-                    queryRecall =
-                            BinaryVectorLoader.calculateRecallAtK(groundTruth, i, intResults, k);
-                    queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, intResults, k);
-                } else {
-                    // Simplified recall calculation (no NDCG without ground truth)
-                    queryRecall = Math.min(1.0, (double) actualK / k);
                 }
 
-                totalRecall += queryRecall;
-                totalNdcg += queryNdcg;
+                totalRecall += BinaryVectorLoader.calculateRecallAtK(groundTruth, i, intResults, k);
+                totalNdcg += BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, intResults, k);
             }
 
-            recallResults.put(k, totalRecall / numQueries);
-            ndcgResults.put(k, totalNdcg / numQueries);
+            recallResults.put(k, validQueries > 0 ? totalRecall / validQueries : 0.0);
+            ndcgResults.put(k, validQueries > 0 ? totalNdcg / validQueries : 0.0);
         }
 
         return new SearchMetrics(recallResults, ndcgResults, searchTime);

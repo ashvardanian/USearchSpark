@@ -611,33 +611,39 @@ public class BinaryVectorLoader {
         }
     }
 
+    /**
+     * Calculate Recall@k following true USearch methodology.
+     * Measures whether the #1 ground truth neighbor appears anywhere in the top-k results.
+     * Returns 1.0 if found, 0.0 if not found (binary per query, averaged across queries).
+     */
     public static double calculateRecallAtK(
             GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
-        if (searchResults.length < k) {
-            k = searchResults.length;
+        if (searchResults.length == 0 || k == 0) {
+            return 0.0;
         }
 
         int[] trueNeighbors = groundTruth.getNeighbors(queryIndex);
-        int actualK = Math.min(k, trueNeighbors.length);
-
-        java.util.Set<Integer> trueSet = new java.util.HashSet<>();
-        for (int i = 0; i < actualK; i++) {
-            trueSet.add(trueNeighbors[i]);
+        if (trueNeighbors.length == 0) {
+            return 0.0;
         }
 
-        int matches = 0;
-        for (int i = 0; i < k && i < searchResults.length; i++) {
-            if (trueSet.contains(searchResults[i])) {
-                matches++;
+        // USearch recall@k: Does the #1 ground truth appear in top-k results?
+        int topGroundTruth = trueNeighbors[0]; // Most relevant ground truth item
+        int searchK = Math.min(k, searchResults.length);
+
+        for (int i = 0; i < searchK; i++) {
+            if (searchResults[i] == topGroundTruth) {
+                return 1.0; // Found the top ground truth item
             }
         }
 
-        return (double) matches / actualK;
+        return 0.0; // Top ground truth item not found in top-k results
     }
 
     /**
-     * Calculate NDCG@k (Normalized Discounted Cumulative Gain) NDCG considers the position of correct
-     * results - earlier positions get higher scores
+     * Calculate NDCG@k (Normalized Discounted Cumulative Gain) following USearch methodology.
+     * Only considers top-k ground truth as relevant items (not exhaustive recall).
+     * NDCG considers the position of correct results - earlier positions get higher scores.
      */
     public static double calculateNDCGAtK(
             GroundTruth groundTruth, int queryIndex, int[] searchResults, int k) {
@@ -646,27 +652,32 @@ public class BinaryVectorLoader {
         }
 
         int[] trueNeighbors = groundTruth.getNeighbors(queryIndex);
-        int actualK = Math.min(k, Math.min(searchResults.length, trueNeighbors.length));
+        if (trueNeighbors.length == 0) {
+            return 0.0;
+        }
 
-        // Create relevance map (1.0 for relevant, 0.0 for non-relevant)
+        // Create relevance map from ONLY top-k ground truth neighbors (USearch philosophy)
+        int groundTruthK = Math.min(k, trueNeighbors.length);
         java.util.Set<Integer> relevantSet = new java.util.HashSet<>();
-        for (int i = 0; i < trueNeighbors.length; i++) {
+        for (int i = 0; i < groundTruthK; i++) {
             relevantSet.add(trueNeighbors[i]);
         }
 
         // Calculate DCG (Discounted Cumulative Gain) for search results
         double dcg = 0.0;
-        for (int i = 0; i < Math.min(actualK, searchResults.length); i++) {
+        int searchK = Math.min(k, searchResults.length);
+        for (int i = 0; i < searchK; i++) {
             double relevance = relevantSet.contains(searchResults[i]) ? 1.0 : 0.0;
             // DCG formula: relevance / log2(position + 1), where position is 1-indexed
             dcg += relevance / (Math.log(i + 2) / Math.log(2));
         }
 
-        // Calculate IDCG (Ideal DCG) - perfect ranking
+        // Calculate IDCG (Ideal DCG) - perfect ranking of top-k ground truth items
+        // USearch philosophy: only consider intersection of k and available ground truth
         double idcg = 0.0;
-        int relevantCount = Math.min(actualK, relevantSet.size());
-        for (int i = 0; i < relevantCount; i++) {
-            // All relevant items get relevance = 1.0 in ideal ranking
+        int maxPossibleRelevant = Math.min(k, groundTruthK); // At most k relevant items
+        for (int i = 0; i < maxPossibleRelevant; i++) {
+            // In ideal ranking, all top-k ground truth items get relevance = 1.0
             idcg += 1.0 / (Math.log(i + 2) / Math.log(2));
         }
 

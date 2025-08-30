@@ -1,8 +1,6 @@
 package com.ashvardanian;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -20,7 +18,6 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -185,27 +182,30 @@ public class LuceneBenchmark {
 
         // Create in-memory directory for index - use our dynamic implementation for large datasets
         Directory directory = new DynamicByteBuffersDirectory();
-        System.out.println("📁 Using DynamicByteBuffersDirectory (grows dynamically, no 4GB limit)");
+        System.out.println(
+                "📁 Using DynamicByteBuffersDirectory (grows dynamically, no 4GB limit)");
 
         // Configure index writer optimized for pure in-memory indexing
         IndexWriterConfig indexConfig = new IndexWriterConfig();
         indexConfig.setUseCompoundFile(false);
-        
+
         // For in-memory: use very large RAM buffer to minimize flushing
         indexConfig.setRAMBufferSizeMB(16384); // 16GB RAM buffer
         indexConfig.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
-        
+
         // Configure concurrent merge scheduler
         int availableCores = Runtime.getRuntime().availableProcessors();
-        org.apache.lucene.index.ConcurrentMergeScheduler mergeScheduler = 
-            new org.apache.lucene.index.ConcurrentMergeScheduler();
+        org.apache.lucene.index.ConcurrentMergeScheduler mergeScheduler =
+                new org.apache.lucene.index.ConcurrentMergeScheduler();
         mergeScheduler.setMaxMergesAndThreads(availableCores, availableCores / 2);
         indexConfig.setMergeScheduler(mergeScheduler);
-        
+
         // Lucene will handle thread concurrency internally
-        
-        System.out.println("🚀 Pure in-memory config: 16GB RAM buffer, " + 
-                          availableCores + " available cores");
+
+        System.out.println(
+                "🚀 Pure in-memory config: 16GB RAM buffer, "
+                        + availableCores
+                        + " available cores");
 
         // Create index writer
         IndexWriter indexWriter = new IndexWriter(directory, indexConfig);
@@ -330,22 +330,25 @@ public class LuceneBenchmark {
 
         // Create index reader and searcher with multithreaded executor
         DirectoryReader indexReader = DirectoryReader.open(directory);
-        
+
         // Configure IndexSearcher with a thread pool for parallel segment searching
         // This is crucial for scaling HNSW search across multiple cores
         int searchThreads =
                 config.getNumThreads() != -1
                         ? config.getNumThreads()
                         : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
-        
+
         IndexSearcher indexSearcher;
         if (searchThreads > 1) {
             // Create a dedicated executor for the IndexSearcher
             // This allows Lucene to search multiple segments in parallel
-            java.util.concurrent.ExecutorService executor = 
-                java.util.concurrent.Executors.newFixedThreadPool(searchThreads);
+            java.util.concurrent.ExecutorService executor =
+                    java.util.concurrent.Executors.newFixedThreadPool(searchThreads);
             indexSearcher = new IndexSearcher(indexReader, executor);
-            System.out.println("🔧 Configured IndexSearcher with " + searchThreads + " threads for parallel segment search");
+            System.out.println(
+                    "🔧 Configured IndexSearcher with "
+                            + searchThreads
+                            + " threads for parallel segment search");
         } else {
             indexSearcher = new IndexSearcher(indexReader);
         }
@@ -577,38 +580,30 @@ public class LuceneBenchmark {
         System.out.println("📊 Calculating accuracy metrics...");
 
         BinaryVectorLoader.GroundTruth groundTruth = loadGroundTruth();
+        if (groundTruth == null) {
+            System.out.println("⚠️ No ground truth available - accuracy metrics will be zero");
+        }
+
         Map<Integer, Double> recallResults = new HashMap<>();
         Map<Integer, Double> ndcgResults = new HashMap<>();
 
         for (int k : kValues) {
             double totalRecall = 0.0;
             double totalNdcg = 0.0;
+            int validQueries =
+                    groundTruth != null ? Math.min(numQueries, groundTruth.getNumQueries()) : 0;
 
-            for (int i = 0; i < numQueries; i++) {
+            for (int i = 0; i < validQueries; i++) {
                 long[] docIds = allSearchResults[i];
-
-                // Truncate results to current K (prefix of the max-K search results)
                 int actualK = Math.min(k, docIds.length);
                 int[] resultsAtK = safeConvertToIntArray(docIds, actualK);
 
-                // Calculate recall using ground truth if available
-                double queryRecall;
-                double queryNdcg = 0.0;
-                if (groundTruth != null && i < groundTruth.getNumQueries()) {
-                    queryRecall =
-                            BinaryVectorLoader.calculateRecallAtK(groundTruth, i, resultsAtK, k);
-                    queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, resultsAtK, k);
-                } else {
-                    // Simplified recall calculation (no NDCG without ground truth)
-                    queryRecall = Math.min(1.0, (double) actualK / k);
-                }
-
-                totalRecall += queryRecall;
-                totalNdcg += queryNdcg;
+                totalRecall += BinaryVectorLoader.calculateRecallAtK(groundTruth, i, resultsAtK, k);
+                totalNdcg += BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, resultsAtK, k);
             }
 
-            recallResults.put(k, totalRecall / numQueries);
-            ndcgResults.put(k, totalNdcg / numQueries);
+            recallResults.put(k, validQueries > 0 ? totalRecall / validQueries : 0.0);
+            ndcgResults.put(k, validQueries > 0 ? totalNdcg / validQueries : 0.0);
         }
 
         return new SearchMetrics(recallResults, ndcgResults, pureSearchTime, idRetrievalTime);
@@ -683,7 +678,19 @@ public class LuceneBenchmark {
             int luceneDocId = topDocs.scoreDocs[j].doc;
             org.apache.lucene.document.Document doc =
                     indexSearcher.storedFields().document(luceneDocId);
-            docIds[j] = doc.getField("id").numericValue().longValue();
+
+            // Enhanced error handling for ID extraction
+            org.apache.lucene.index.IndexableField idField = doc.getField("id");
+            if (idField == null) {
+                throw new IOException("Document " + luceneDocId + " missing 'id' field");
+            }
+
+            Number idValue = idField.numericValue();
+            if (idValue == null) {
+                throw new IOException("Document " + luceneDocId + " 'id' field is not numeric");
+            }
+
+            docIds[j] = idValue.longValue();
         }
         return docIds;
     }
