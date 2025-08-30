@@ -65,6 +65,7 @@ public class SparkBenchmarkCoordinator {
         public long getTimestamp() {
             return timestamp;
         }
+
     }
 
     private final SparkSession spark;
@@ -136,16 +137,24 @@ public class SparkBenchmarkCoordinator {
             throws Exception {
         logger.info("Running local (single-node) benchmark");
 
-        // Run Lucene benchmark first (multithreaded)
+        // Run Lucene benchmark
+        logger.info("Running Lucene benchmark");
         progressAccumulator.add(20);
         LuceneBenchmark luceneBenchmark = new LuceneBenchmark(config, dataset);
         LuceneBenchmark.BenchmarkResult luceneResult = luceneBenchmark.runBenchmark();
 
-        // Run USearch benchmarks (multithreaded)
+        // Run USearch benchmarks for each precision
         progressAccumulator.add(30);
-        USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
-        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = usearchBenchmark
-                .runBenchmarks();
+        Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults = new HashMap<>();
+
+        for (BenchmarkConfig.Precision precision : config.getPrecisions()) {
+            logger.info("Running USearch {} benchmark", precision.getName());
+            // Run single precision benchmark
+            USearchBenchmark usearchBenchmark = new USearchBenchmark(config, dataset);
+            USearchBenchmark.BenchmarkResult result = usearchBenchmark.runBenchmark(precision);
+            usearchResults.put(precision, result);
+        }
+
         progressAccumulator.add(40);
 
         // Log results with clean output

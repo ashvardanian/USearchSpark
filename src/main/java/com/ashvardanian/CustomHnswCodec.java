@@ -11,28 +11,50 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 public class CustomHnswCodec extends FilterCodec {
     private final int m;
     private final int beamWidth;
-    private final KnnVectorsFormat knn;
+    private volatile KnnVectorsFormat knn; // Lazy initialization
+
+    // Default constructor required for SPI
+    public CustomHnswCodec() {
+        this(32, 512); // Use default values
+    }
 
     public CustomHnswCodec(int m, int beamWidth) {
-        super("customHNSW", Codec.getDefault());
+        // Use Lucene101Codec as base (Lucene 10.x) to avoid circular dependency during SPI loading
+        super("customHNSW", getLucene101CodecSafely());
         this.m = m;
         this.beamWidth = beamWidth;
-        this.knn = createHnswFormat(m, beamWidth);
+        // Don't initialize knn in constructor to avoid circular dependency
+    }
+
+    private static org.apache.lucene.codecs.Codec getLucene101CodecSafely() {
+        try {
+            return new org.apache.lucene.codecs.lucene101.Lucene101Codec();
+        } catch (Exception e) {
+            // Fallback to SimpleText if Lucene101 not available
+            return new org.apache.lucene.codecs.simpletext.SimpleTextCodec();
+        }
     }
 
     @Override
     public KnnVectorsFormat knnVectorsFormat() {
+        if (knn == null) {
+            synchronized (this) {
+                if (knn == null) {
+                    knn = createHnswFormat(m, beamWidth);
+                }
+            }
+        }
         return knn;
     }
 
     private static KnnVectorsFormat createHnswFormat(int m, int beamWidth) {
         String[] candidates = new String[]{
-                // Lucene 10.x
-                "org.apache.lucene.codecs.lucene1010.Lucene1010HnswVectorsFormat",
-                // Lucene 9.x fallbacks
+                // Lucene 10.x (current) - uses Lucene99 format
                 "org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat",
-                "org.apache.lucene.codecs.lucene95.Lucene95HnswVectorsFormat",
-                "org.apache.lucene.codecs.hnsw.HnswVectorsFormat"};
+                // Lucene 10.x with scalar quantization
+                "org.apache.lucene.codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat",
+                // Lucene 10.x with binary quantization
+                "org.apache.lucene.codecs.lucene102.Lucene102HnswBinaryQuantizedVectorsFormat"};
         for (String cname : candidates) {
             try {
                 Class<?> cls = Class.forName(cname);

@@ -35,8 +35,10 @@ public class USearchBenchmark {
             this.indexingTimeMs = indexingTimeMs;
             this.searchTimeMs = searchTimeMs;
             this.throughputQPS = throughputQPS;
-            this.recallAtK = Collections.unmodifiableMap(new HashMap<>(recallAtK));
-            this.ndcgAtK = Collections.unmodifiableMap(new HashMap<>(ndcgAtK));
+            this.recallAtK = recallAtK != null
+                    ? Collections.unmodifiableMap(new HashMap<>(recallAtK))
+                    : new HashMap<>();
+            this.ndcgAtK = ndcgAtK != null ? Collections.unmodifiableMap(new HashMap<>(ndcgAtK)) : new HashMap<>();
             this.memoryUsageBytes = memoryUsageBytes;
             this.numVectors = numVectors;
             this.dimensions = dimensions;
@@ -102,6 +104,50 @@ public class USearchBenchmark {
     public USearchBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset) {
         this.config = config;
         this.dataset = dataset;
+    }
+
+    public BenchmarkResult runBenchmark(BenchmarkConfig.Precision precision) throws Exception {
+        System.out.println("\n🔍 Starting USearch benchmark for dataset: " + dataset.getDefinition().getName()
+                + " with precision: " + precision.getName());
+
+        // Load base vectors and queries with optional limits
+        System.out.print("📂 Loading vectors... ");
+        int maxBaseVectors = config.getMaxVectors() > 0
+                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
+                : -1;
+        BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
+                maxBaseVectors);
+        BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
+        System.out.println("✅ Done");
+
+        int numBaseVectors = baseVectors.getRows();
+        if (maxBaseVectors > 0) {
+            System.out.println(
+                    "🔢 Limiting base vectors to " + String.format("%,d", numBaseVectors) + " for faster testing");
+        }
+
+        System.out.println("📊 Using " + String.format("%,d", numBaseVectors) + " base vectors and "
+                + String.format("%,d", queryVectors.getRows()) + " query vectors");
+
+        // Limit number of queries for benchmarking
+        int numQueries = Math.min(config.getNumQueries(), queryVectors.getRows());
+
+        System.out.println(String.format("\n⚙️ Running USearch benchmark with precision: %s", precision.getName()));
+
+        try {
+            BenchmarkResult result = runSingleBenchmark(baseVectors, queryVectors, precision, numQueries,
+                    numBaseVectors);
+
+            System.out.println(String.format("✅ %s completed - Indexing: %,dms, Search: %,dms, Throughput: %,.0f QPS",
+                    precision.getName(), result.getIndexingTimeMs(), result.getSearchTimeMs(),
+                    result.getThroughputQPS()));
+
+            return result;
+        } catch (Exception e) {
+            System.err.println(String.format("❌ Failed to run USearch benchmark for precision %s: %s",
+                    precision.getName(), e.getMessage()));
+            throw e;
+        }
     }
 
     public Map<BenchmarkConfig.Precision, BenchmarkResult> runBenchmarks() throws Exception {
