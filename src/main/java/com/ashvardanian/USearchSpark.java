@@ -31,6 +31,12 @@ public class USearchSpark {
             logger.info("  Mode: {}", config.getMode());
             logger.info("  Precisions: {}", String.join(", ", config.getPrecisionNames()));
 
+            // Version information for reproducibility
+            String luceneVersion = org.apache.lucene.util.Version.LATEST.toString();
+            String usearchVersion = cloud.unum.usearch.Index.version();
+            logger.info("📚 Lucene version: {}", luceneVersion);
+            logger.info("🔍 USearch version: {}", usearchVersion);
+
             SparkBenchmarkCoordinator coordinator = new SparkBenchmarkCoordinator(spark);
             coordinator.runBenchmark(config);
 
