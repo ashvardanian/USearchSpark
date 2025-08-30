@@ -1,0 +1,6 @@
+timestamp,dataset,mode,implementation,precision,indexing_time_ms,search_time_ms,throughput_qps,memory_usage_mb,recall_at_1,recall_at_10,recall_at_100
+1756507371595,msft-spacev-100m,local,USearch,i8,727749,60,166666.67,49140.26,0.7044,0.8712,0.9446
+1756507371595,msft-spacev-100m,local,USearch,bf16,876728,75,133333.33,65524.37,0.7026,0.8680,0.9430
+1756507371595,msft-spacev-100m,local,USearch,f32,1007457,92,108695.65,98276.41,0.7064,0.8685,0.9405
+1756507371595,msft-spacev-100m,local,USearch,f16,799193,68,147058.82,65524.37,0.7036,0.8689,0.9430
+1756507371595,msft-spacev-100m,local,Lucene,F32,2496748,6431,1554.97,80171.02,0.6412,0.7699,0.8032

@@ -128,7 +128,7 @@ public class BenchmarkConfig {
 
         String datasetName = args[0];
         BenchmarkMode mode = BenchmarkMode.LOCAL;
-        String outputPath = "benchmark_results";
+        String outputPath = "stats";
         List<Precision> precisions =
                 Arrays.asList(Precision.F32, Precision.F16, Precision.BF16, Precision.I8);
         Map<String, String> additionalConfig = new HashMap<>();

@@ -1,0 +1,110 @@
+{
+    "datasetName": "msft-spacev-100m",
+    "mode": "LOCAL",
+    "totalTimeMs": 1756507371595,
+    "usearchResults": {
+        "I8": {
+            "precision": "I8",
+            "indexingTimeMs": 727749,
+            "searchTimeMs": 60,
+            "throughputQPS": 166666.6666666667,
+            "recallAtK": {
+                "100": 0.9445879999999519,
+                "1": 0.7044,
+                "10": 0.8712199999999796
+            },
+            "memoryUsageBytes": 51527297264,
+            "numVectors": 100000000,
+            "dimensions": 100,
+            "throughputIPS": 137410.01361733236,
+            "ndcgatK": {
+                "100": 0.9538691632589931,
+                "1": 0.9869,
+                "10": 0.9817553568785932
+            }
+        },
+        "BF16": {
+            "precision": "BF16",
+            "indexingTimeMs": 876728,
+            "searchTimeMs": 75,
+            "throughputQPS": 133333.33333333334,
+            "recallAtK": {
+                "100": 0.9430279999999509,
+                "1": 0.7026,
+                "10": 0.8680299999999778
+            },
+            "memoryUsageBytes": 68707282688,
+            "numVectors": 100000000,
+            "dimensions": 100,
+            "throughputIPS": 114060.46116925661,
+            "ndcgatK": {
+                "100": 0.9525740707176579,
+                "1": 0.9863,
+                "10": 0.9815768671718402
+            }
+        },
+        "F32": {
+            "precision": "F32",
+            "indexingTimeMs": 1007457,
+            "searchTimeMs": 92,
+            "throughputQPS": 108695.65217391304,
+            "recallAtK": {
+                "100": 0.9404939999999519,
+                "1": 0.7064,
+                "10": 0.868469999999981
+            },
+            "memoryUsageBytes": 103050284144,
+            "numVectors": 100000000,
+            "dimensions": 100,
+            "throughputIPS": 99259.81952579613,
+            "ndcgatK": {
+                "100": 0.9500001048773767,
+                "1": 0.9838,
+                "10": 0.9786342396388346
+            }
+        },
+        "F16": {
+            "precision": "F16",
+            "indexingTimeMs": 799193,
+            "searchTimeMs": 68,
+            "throughputQPS": 147058.82352941175,
+            "recallAtK": {
+                "100": 0.9430179999999518,
+                "1": 0.7036,
+                "10": 0.8688799999999788
+            },
+            "memoryUsageBytes": 68707285216,
+            "numVectors": 100000000,
+            "dimensions": 100,
+            "throughputIPS": 125126.22107550992,
+            "ndcgatK": {
+                "100": 0.9522625597794002,
+                "1": 0.9837,
+                "10": 0.9800458616583928
+            }
+        }
+    },
+    "luceneResult": {
+        "indexingTimeMs": 2496748,
+        "searchTimeMs": 6431,
+        "pureSearchTimeMs": 4843,
+        "idRetrievalTimeMs": 1588,
+        "throughputQPS": 1554.9681231534753,
+        "pureSearchQPS": 2064.835845550279,
+        "recallAtK": {
+            "100": 0.803214999999975,
+            "1": 0.6412,
+            "10": 0.7699099999999874
+        },
+        "memoryUsageBytes": 84065405384,
+        "numVectors": 100000000,
+        "dimensions": 100,
+        "throughputIPS": 40052.099771382615,
+        "ndcgatK": {
+            "100": 0.8466434521186428,
+            "1": 0.9994,
+            "10": 0.9955927632219597
+        }
+    },
+    "timestamp": 1756507371595
+}

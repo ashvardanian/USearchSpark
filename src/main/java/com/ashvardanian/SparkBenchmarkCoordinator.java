@@ -172,7 +172,7 @@ public class SparkBenchmarkCoordinator {
 
         String filename =
                 String.format(
-                        "benchmark_results_%s_%s_%d.json",
+                        "stats_%s_%s_%d.json",
                         results.getDatasetName(),
                         results.getMode().getName(),
                         results.getTimestamp());

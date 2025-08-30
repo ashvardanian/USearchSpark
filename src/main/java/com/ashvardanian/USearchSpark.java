@@ -66,7 +66,7 @@ public class USearchSpark {
                 OPTIONS
                   --max-vectors N        Limit vectors to index (default: all, use -1 for all)
                   --precision LIST       Comma-separated: f32,f16,bf16,i8 (default: all)
-                  --output PATH          Results directory (default: benchmark_results)
+                  --output PATH          Results directory (default: stats)
                   --queries N            Number of queries (default: 10000)
                   --k-values LIST        Comma-separated k values (default: 1,10,100)
                   --batch-size N         Parallel processing batch size (default: 1024)
