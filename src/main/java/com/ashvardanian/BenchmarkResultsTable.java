@@ -16,7 +16,7 @@ public class BenchmarkResultsTable {
 
     public static void printComparisonTable(
             Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
-            LuceneBenchmark.BenchmarkResult luceneResult) {
+            Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> luceneResults) {
         System.out.println("\n📊 VECTOR SEARCH BENCHMARK RESULTS 📊");
         System.out.println("═".repeat(85));
         System.out.println();
@@ -28,14 +28,16 @@ public class BenchmarkResultsTable {
         perfTable.addRow("Engine", "Precision", "IPS", "QPS", "Memory");
         perfTable.addRule();
 
-        // Lucene first as requested
-        double luceneIps = luceneResult.getIndexingTimeMs() > 0
-                ? (luceneResult.getNumVectors() * 1000.0) / luceneResult.getIndexingTimeMs()
-                : 0;
-        String luceneEngine = "Lucene";
-        perfTable.addRow(luceneEngine, "F32", String.format("%,.0f", luceneIps),
-                String.format("%,.0f", luceneResult.getThroughputQPS()),
-                formatMemory(luceneResult.getMemoryUsageBytes()));
+        // Lucene results first as requested
+        for (Map.Entry<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> entry : luceneResults.entrySet()) {
+            LuceneBenchmark.BenchmarkResult result = entry.getValue();
+            double luceneIps = result.getIndexingTimeMs() > 0
+                    ? (result.getNumVectors() * 1000.0) / result.getIndexingTimeMs()
+                    : 0;
+            String luceneEngine = "Lucene";
+            perfTable.addRow(luceneEngine, entry.getKey().getName().toUpperCase(), String.format("%,.0f", luceneIps),
+                    String.format("%,.0f", result.getThroughputQPS()), formatMemory(result.getMemoryUsageBytes()));
+        }
 
         // USearch results
         List<BenchmarkConfig.Precision> precisions = List.of(BenchmarkConfig.Precision.F32,
@@ -65,13 +67,16 @@ public class BenchmarkResultsTable {
         metricsTable.addRow("Engine", "Precision", "Recall@10", "NDCG@10", "Recall@100", "NDCG@100");
         metricsTable.addRule();
 
-        // Lucene first
-        String luceneEngineMetrics = "Lucene";
-        metricsTable.addRow(luceneEngineMetrics, "F32",
-                String.format("%.2f%%", luceneResult.getRecallAtK().get(10) * 100.0),
-                String.format("%.2f%%", luceneResult.getNDCGAtK().getOrDefault(10, 0.0) * 100.0),
-                String.format("%.2f%%", luceneResult.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
-                String.format("%.2f%%", luceneResult.getNDCGAtK().getOrDefault(100, 0.0) * 100.0));
+        // Lucene results first
+        for (Map.Entry<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> entry : luceneResults.entrySet()) {
+            LuceneBenchmark.BenchmarkResult result = entry.getValue();
+            String luceneEngineMetrics = "Lucene";
+            metricsTable.addRow(luceneEngineMetrics, entry.getKey().getName().toUpperCase(),
+                    String.format("%.2f%%", result.getRecallAtK().getOrDefault(10, 0.0) * 100.0),
+                    String.format("%.2f%%", result.getNDCGAtK().getOrDefault(10, 0.0) * 100.0),
+                    String.format("%.2f%%", result.getRecallAtK().getOrDefault(100, 0.0) * 100.0),
+                    String.format("%.2f%%", result.getNDCGAtK().getOrDefault(100, 0.0) * 100.0));
+        }
 
         // USearch results
         for (BenchmarkConfig.Precision precision : precisions) {

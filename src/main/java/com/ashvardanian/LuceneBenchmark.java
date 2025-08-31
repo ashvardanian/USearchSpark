@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.KnnFloatVectorField;
+import org.apache.lucene.document.KnnByteVectorField;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
@@ -20,6 +21,7 @@ import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.MergeScheduler.MergeSource;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.KnnByteVectorQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.LRUQueryCache;
 import org.apache.lucene.search.UsageTrackingQueryCachingPolicy;
@@ -132,20 +134,22 @@ public class LuceneBenchmark {
 
     private final BenchmarkConfig config;
     private final DatasetRegistry.Dataset dataset;
+    private final BenchmarkConfig.Precision precision;
 
-    public LuceneBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset) {
+    public LuceneBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset,
+            BenchmarkConfig.Precision precision) {
         this.config = config;
         this.dataset = dataset;
+        this.precision = precision;
     }
 
     public BenchmarkResult runBenchmark() throws Exception {
-        System.out.println("\n🔍 Starting Lucene HNSW benchmark for dataset: " + dataset.getDefinition().getName());
+        System.out.println("\n🔍 Starting Lucene HNSW benchmark for dataset: " + dataset.getDefinition().getName()
+                + " with precision: " + precision.getName());
 
         // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors... ");
-        int maxBaseVectors = config.getMaxVectors() > 0
-                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
-                : -1;
+        int maxBaseVectors = config.getMaxVectors() > 0 ? (int)Math.min(config.getMaxVectors(), Integer.MAX_VALUE) : -1;
         BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
                 maxBaseVectors);
         BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
@@ -176,19 +180,19 @@ public class LuceneBenchmark {
         indexConfig.setUseCompoundFile(false);
 
         // Fixed 4GB segment size for predictable performance
-        
+
         // Estimate index size: vector data + HNSW overhead (~2.5x for graph structure)
-        long vectorBytes = (long) numBaseVectors * baseVectors.getCols() * 4; // f32 = 4 bytes per float
+        long vectorBytes = (long)numBaseVectors * baseVectors.getCols() * 4; // f32 = 4 bytes per float
         long estimatedIndexSizeBytes = (long)(vectorBytes * 2.5); // HNSW overhead factor
         long estimatedIndexSizeMB = estimatedIndexSizeBytes / (1024 * 1024);
-        
+
         // Fixed 4GB segments
         int optimalSegmentSizeMB = 4096; // 4GB segments
         long estimatedSegments = estimatedIndexSizeMB / optimalSegmentSizeMB;
-        
+
         System.out.println(String.format("📊 Target segment size: 4GB (expecting ~%d segments for %,d MB index)",
                 estimatedSegments, estimatedIndexSizeMB));
-        
+
         TieredMergePolicy mergePolicy = new TieredMergePolicy();
         mergePolicy.setMaxMergedSegmentMB(optimalSegmentSizeMB);
         mergePolicy.setFloorSegmentMB(256); // Reasonable floor
@@ -213,21 +217,21 @@ public class LuceneBenchmark {
                     throws IOException {
                 long startMerge = System.currentTimeMillis();
                 double sizeMB = merge.estimatedMergeBytes / 1024.0 / 1024.0;
-                
+
                 // Only log significant merges (>50MB) or every 20th merge to reduce noise
                 int currentMergeCount = mergeCount.incrementAndGet();
                 boolean shouldLog = sizeMB > 50.0 || (currentMergeCount % 20 == 0);
-                
+
                 if (shouldLog) {
-                    System.out.println(
-                            String.format("🔄 Merge %d: %d segments (%.1f MB)", currentMergeCount, merge.segments.size(), sizeMB));
+                    System.out.println(String.format("🔄 Merge %d: %d segments (%.1f MB)", currentMergeCount,
+                            merge.segments.size(), sizeMB));
                 }
 
                 super.doMerge(mergeSource, merge);
 
                 long mergeTime = System.currentTimeMillis() - startMerge;
                 totalMergeTime.addAndGet(mergeTime);
-                
+
                 if (shouldLog) {
                     double throughputMBps = sizeMB / (mergeTime / 1000.0);
                     long totalElapsed = System.currentTimeMillis() - totalIndexingStartTime.get();
@@ -237,7 +241,6 @@ public class LuceneBenchmark {
                 }
             }
         };
-
         // Use ALL available threads for merging to maximize speed
         int availableCores = Runtime.getRuntime().availableProcessors();
         mergeScheduler.setMaxMergesAndThreads(availableCores * 2, availableCores);
@@ -263,20 +266,36 @@ public class LuceneBenchmark {
         System.out.println("🧵 Using " + numThreads + " threads for Lucene indexing ("
                 + java.util.concurrent.ForkJoinPool.commonPool().getParallelism() + " available)");
 
-        ProgressLogger indexProgress = new ProgressLogger("Indexing F32", numBaseVectors);
+        ProgressLogger indexProgress = new ProgressLogger("Indexing " + precision.getName().toUpperCase(),
+                numBaseVectors);
 
         // Parallel indexing with clean work partitioning
         if (numThreads == 1) {
             // Single-threaded indexing
-            float[] vectorBuffer = new float[baseVectors.getCols()];
-            for (int i = 0; i < numBaseVectors; i++) {
-                baseVectors.getVectorAsFloat(i, vectorBuffer);
-                long finalId = (vectorIds != null && i < vectorIds.getNumVectors()) ? vectorIds.getId(i) : i;
-                Document document = new Document();
-                document.add(new NumericDocValuesField("id", finalId));
-                document.add(new KnnFloatVectorField("vector", vectorBuffer));
-                indexWriter.addDocument(document);
-                indexProgress.increment();
+            if (precision == BenchmarkConfig.Precision.F32) {
+                float[] vectorBuffer = new float[baseVectors.getCols()];
+                for (int i = 0; i < numBaseVectors; i++) {
+                    baseVectors.getVectorAsFloat(i, vectorBuffer);
+                    long finalId = (vectorIds != null && i < vectorIds.getNumVectors()) ? vectorIds.getId(i) : i;
+                    Document document = new Document();
+                    document.add(new NumericDocValuesField("id", finalId));
+                    document.add(new KnnFloatVectorField("vector", vectorBuffer));
+                    indexWriter.addDocument(document);
+                    indexProgress.increment();
+                }
+            } else if (precision == BenchmarkConfig.Precision.I8) {
+                byte[] vectorBuffer = new byte[baseVectors.getCols()];
+                for (int i = 0; i < numBaseVectors; i++) {
+                    baseVectors.getVectorAsByte(i, vectorBuffer);
+                    long finalId = (vectorIds != null && i < vectorIds.getNumVectors()) ? vectorIds.getId(i) : i;
+                    Document document = new Document();
+                    document.add(new NumericDocValuesField("id", finalId));
+                    document.add(new KnnByteVectorField("vector", vectorBuffer));
+                    indexWriter.addDocument(document);
+                    indexProgress.increment();
+                }
+            } else {
+                throw new UnsupportedOperationException("Lucene precision " + precision + " not supported yet");
             }
         } else {
             // Multi-threaded indexing with clean work partitioning
@@ -295,19 +314,39 @@ public class LuceneBenchmark {
 
                     CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                         try {
-                            float[] vectorBuffer = new float[baseVectors.getCols()];
-                            float[] reusedVector = new float[baseVectors.getCols()]; // Reuse allocation
-                            for (int i = startIdx; i < endIdx; i++) {
-                                baseVectors.getVectorAsFloat(i, reusedVector);
-                                System.arraycopy(reusedVector, 0, vectorBuffer, 0, baseVectors.getCols());
-                                long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
-                                        ? vectorIds.getId(i)
-                                        : i;
-                                Document document = new Document();
-                                document.add(new NumericDocValuesField("id", finalId));
-                                document.add(new KnnFloatVectorField("vector", vectorBuffer));
-                                indexWriter.addDocument(document);
-                                indexProgress.increment();
+                            if (precision == BenchmarkConfig.Precision.F32) {
+                                float[] vectorBuffer = new float[baseVectors.getCols()];
+                                float[] reusedVector = new float[baseVectors.getCols()];
+                                for (int i = startIdx; i < endIdx; i++) {
+                                    baseVectors.getVectorAsFloat(i, reusedVector);
+                                    System.arraycopy(reusedVector, 0, vectorBuffer, 0, baseVectors.getCols());
+                                    long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
+                                            ? vectorIds.getId(i)
+                                            : i;
+                                    Document document = new Document();
+                                    document.add(new NumericDocValuesField("id", finalId));
+                                    document.add(new KnnFloatVectorField("vector", vectorBuffer));
+                                    indexWriter.addDocument(document);
+                                    indexProgress.increment();
+                                }
+                            } else if (precision == BenchmarkConfig.Precision.I8) {
+                                byte[] vectorBuffer = new byte[baseVectors.getCols()];
+                                byte[] reusedVector = new byte[baseVectors.getCols()];
+                                for (int i = startIdx; i < endIdx; i++) {
+                                    baseVectors.getVectorAsByte(i, reusedVector);
+                                    System.arraycopy(reusedVector, 0, vectorBuffer, 0, baseVectors.getCols());
+                                    long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
+                                            ? vectorIds.getId(i)
+                                            : i;
+                                    Document document = new Document();
+                                    document.add(new NumericDocValuesField("id", finalId));
+                                    document.add(new KnnByteVectorField("vector", vectorBuffer));
+                                    indexWriter.addDocument(document);
+                                    indexProgress.increment();
+                                }
+                            } else {
+                                throw new UnsupportedOperationException(
+                                        "Lucene precision " + precision + " not supported yet");
                             }
                         } catch (Exception e) {
                             throw new RuntimeException("Indexing failed in thread " + finalThreadId + " (range "
@@ -329,25 +368,26 @@ public class LuceneBenchmark {
 
         // Commit changes
         indexWriter.commit();
-        
+
         // Optional: Force merge to target segment count if we have too many segments
         int targetSegments = (int)(estimatedIndexSizeMB / 4096);
-        if (targetSegments < 1) targetSegments = 1;
-        
+        if (targetSegments < 1)
+            targetSegments = 1;
+
         // Check current segment count before deciding to force merge
         DirectoryReader tempReader = DirectoryReader.open(indexWriter);
         int currentSegments = tempReader.leaves().size();
         tempReader.close();
-        
+
         if (currentSegments > targetSegments * 2) {
-            System.out.println(String.format("🔧 Force merging %d segments to %d target segments...", 
-                currentSegments, targetSegments));
+            System.out.println(String.format("🔧 Force merging %d segments to %d target segments...", currentSegments,
+                    targetSegments));
             long mergeStart = System.currentTimeMillis();
             indexWriter.forceMerge(targetSegments);
             long mergeTime = System.currentTimeMillis() - mergeStart;
             System.out.println(String.format("✅ Force merge completed in %,d ms", mergeTime));
         }
-        
+
         indexWriter.close();
 
         long indexingTime = System.currentTimeMillis() - startIndexing;
@@ -359,7 +399,8 @@ public class LuceneBenchmark {
             double mergeOverheadPercent = (totalMergeTimeValue * 100.0) / indexingTime;
             double pureIPS = pureIndexingTime > 0 ? (numBaseVectors * 1000.0) / pureIndexingTime : 0.0;
             double totalIPS = indexingTime > 0 ? (numBaseVectors * 1000.0) / indexingTime : 0.0;
-            System.out.println(String.format("⏱️  Merge overhead: %,d ms (%.1f%%) from %d merges - Pure IPS: %.0f, Total IPS: %.0f",
+            System.out.println(String.format(
+                    "⏱️  Merge overhead: %,d ms (%.1f%%) from %d merges - Pure IPS: %.0f, Total IPS: %.0f",
                     totalMergeTimeValue, mergeOverheadPercent, mergeCount.get(), pureIPS, totalIPS));
         }
 
@@ -368,7 +409,7 @@ public class LuceneBenchmark {
         long memoryUsageHeap = Math.max(0, memoryAfter - memoryBefore);
         long indexBytes = 0;
         if (directory instanceof DynamicByteBuffersDirectory) {
-            indexBytes = ((DynamicByteBuffersDirectory) directory).estimatedSizeInBytes();
+            indexBytes = ((DynamicByteBuffersDirectory)directory).estimatedSizeInBytes();
         }
         long memoryUsage = Math.max(memoryUsageHeap, indexBytes);
 
@@ -435,8 +476,8 @@ public class LuceneBenchmark {
         double idQpsPerCore = availableThreads > 0 ? idRetrievalQPS / availableThreads : 0.0;
         double totalQpsPerCore = availableThreads > 0 ? throughputQPS / availableThreads : 0.0;
 
-        System.out.println(String.format("   Threads — indexing: %d, search: %d",
-                indexingThreadsUsed, availableThreads));
+        System.out
+                .println(String.format("   Threads — indexing: %d, search: %d", indexingThreadsUsed, availableThreads));
         System.out.println(String.format(
                 "   Per-core — Indexing: %,.0f IPS/core; Pure: %,.2f QPS/core; ID: %,.2f QPS/core; Total: %,.2f QPS/core",
                 ipsPerCore, pureQpsPerCore, idQpsPerCore, totalQpsPerCore));
@@ -467,8 +508,7 @@ public class LuceneBenchmark {
     }
 
     private SearchMetrics calculateSearchMetrics(IndexSearcher indexSearcher,
-            BinaryVectorLoader.VectorDataset queryVectors, int numQueries, int[] kValues)
-            throws Exception {
+            BinaryVectorLoader.VectorDataset queryVectors, int numQueries, int[] kValues) throws Exception {
         String vectorFieldName = "vector";
 
         // IDs are already mapped during indexing - no conversion needed
@@ -483,12 +523,13 @@ public class LuceneBenchmark {
         int batchSize = config.getBatchSize();
         int numBatches = (numQueries + batchSize - 1) / batchSize;
         int availableCores = Runtime.getRuntime().availableProcessors();
-        
-        System.out.println(String.format("🔍 Processing %d queries in %d batches of %d", 
-            numQueries, numBatches, batchSize));
+
+        System.out.println(
+                String.format("🔍 Processing %d queries in %d batches of %d", numQueries, numBatches, batchSize));
 
         // Use all available cores for batch processing
-        java.util.concurrent.ExecutorService batchExecutor = java.util.concurrent.Executors.newFixedThreadPool(availableCores);
+        java.util.concurrent.ExecutorService batchExecutor = java.util.concurrent.Executors
+                .newFixedThreadPool(availableCores);
 
         // Phase 1: Pure HNSW search (no ID retrieval)
         ProgressLogger pureSearchProgress = new ProgressLogger("Pure search k=" + maxK, numQueries,
@@ -496,36 +537,54 @@ public class LuceneBenchmark {
         TopDocs[] pureSearchResults = new TopDocs[numQueries];
 
         long startPureSearch = System.currentTimeMillis();
-        
+
         for (int batch = 0; batch < numBatches; batch++) {
             int batchStart = batch * batchSize;
             int batchEnd = Math.min(batchStart + batchSize, numQueries);
             int currentBatchSize = batchEnd - batchStart;
-            
+
             // Submit all queries in this batch concurrently
             List<CompletableFuture<TopDocs>> batchFutures = new ArrayList<>(currentBatchSize);
-            
+
             for (int i = batchStart; i < batchEnd; i++) {
                 final int queryId = i;
-                float[] queryVector = new float[queryVectors.getCols()];
-                queryVectors.getVectorAsFloat(queryId, queryVector);
-                
-                CompletableFuture<TopDocs> future = CompletableFuture.supplyAsync(() -> {
-                    KnnFloatVectorQuery query = new KnnFloatVectorQuery(vectorFieldName, queryVector, maxK);
-                    try {
-                        return indexSearcher.search(query, maxK);
-                    } catch (IOException e) {
-                        throw new RuntimeException("Search failed for query " + queryId, e);
-                    }
-                }, batchExecutor);
-                
+
+                CompletableFuture<TopDocs> future;
+                if (precision == BenchmarkConfig.Precision.F32) {
+                    float[] queryVector = new float[queryVectors.getCols()];
+                    queryVectors.getVectorAsFloat(queryId, queryVector);
+
+                    future = CompletableFuture.supplyAsync(() -> {
+                        KnnFloatVectorQuery query = new KnnFloatVectorQuery(vectorFieldName, queryVector, maxK);
+                        try {
+                            return indexSearcher.search(query, maxK);
+                        } catch (IOException e) {
+                            throw new RuntimeException("Search failed for query " + queryId, e);
+                        }
+                    }, batchExecutor);
+                } else if (precision == BenchmarkConfig.Precision.I8) {
+                    byte[] queryVector = new byte[queryVectors.getCols()];
+                    queryVectors.getVectorAsByte(queryId, queryVector);
+
+                    future = CompletableFuture.supplyAsync(() -> {
+                        KnnByteVectorQuery query = new KnnByteVectorQuery(vectorFieldName, queryVector, maxK);
+                        try {
+                            return indexSearcher.search(query, maxK);
+                        } catch (IOException e) {
+                            throw new RuntimeException("Search failed for query " + queryId, e);
+                        }
+                    }, batchExecutor);
+                } else {
+                    throw new UnsupportedOperationException("Lucene precision " + precision + " not supported yet");
+                }
+
                 batchFutures.add(future);
             }
-            
+
             // Wait for this batch to complete before starting next batch
             try {
                 CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0])).join();
-                
+
                 // Collect results
                 for (int i = 0; i < currentBatchSize; i++) {
                     pureSearchResults[batchStart + i] = batchFutures.get(i).get();
@@ -535,7 +594,7 @@ public class LuceneBenchmark {
                 throw new RuntimeException("Batch " + batch + " failed", e);
             }
         }
-        
+
         long pureSearchTime = System.currentTimeMillis() - startPureSearch;
         pureSearchProgress.complete(numQueries);
         batchExecutor.shutdown();
@@ -546,19 +605,20 @@ public class LuceneBenchmark {
         long startIdRetrieval = System.currentTimeMillis();
 
         // Use same batch processing approach for ID retrieval
-        java.util.concurrent.ExecutorService idExecutor = java.util.concurrent.Executors.newFixedThreadPool(availableCores);
-        
+        java.util.concurrent.ExecutorService idExecutor = java.util.concurrent.Executors
+                .newFixedThreadPool(availableCores);
+
         for (int batch = 0; batch < numBatches; batch++) {
             int batchStart = batch * batchSize;
             int batchEnd = Math.min(batchStart + batchSize, numQueries);
             int currentBatchSize = batchEnd - batchStart;
-            
+
             // Submit all ID retrievals in this batch concurrently
             List<CompletableFuture<long[]>> idFutures = new ArrayList<>(currentBatchSize);
-            
+
             for (int i = batchStart; i < batchEnd; i++) {
                 final int queryId = i;
-                
+
                 CompletableFuture<long[]> future = CompletableFuture.supplyAsync(() -> {
                     try {
                         return extractDocumentIds(pureSearchResults[queryId], maxK, indexSearcher);
@@ -566,14 +626,14 @@ public class LuceneBenchmark {
                         throw new RuntimeException("ID retrieval failed for query " + queryId, e);
                     }
                 }, idExecutor);
-                
+
                 idFutures.add(future);
             }
-            
+
             // Wait for this batch to complete
             try {
                 CompletableFuture.allOf(idFutures.toArray(new CompletableFuture[0])).join();
-                
+
                 // Collect results
                 for (int i = 0; i < currentBatchSize; i++) {
                     allSearchResults[batchStart + i] = idFutures.get(i).get();
@@ -583,7 +643,7 @@ public class LuceneBenchmark {
                 throw new RuntimeException("ID retrieval batch " + batch + " failed", e);
             }
         }
-        
+
         long idRetrievalTime = System.currentTimeMillis() - startIdRetrieval;
         idRetrievalProgress.complete(numQueries);
         idExecutor.shutdown();
@@ -672,7 +732,7 @@ public class LuceneBenchmark {
                 throw new IllegalArgumentException(
                         "Vector ID " + value + " cannot be safely converted to int at index " + i);
             }
-            intArray[i] = (int) value;
+            intArray[i] = (int)value;
         }
         return intArray;
     }

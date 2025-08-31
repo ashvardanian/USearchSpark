@@ -27,17 +27,17 @@ public class SparkBenchmarkCoordinator {
         private final BenchmarkConfig.BenchmarkMode mode;
         private final long totalTimeMs;
         private final Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults;
-        private final LuceneBenchmark.BenchmarkResult luceneResult;
+        private final Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> luceneResults;
         private final long timestamp;
 
         public BenchmarkResults(String datasetName, BenchmarkConfig.BenchmarkMode mode, long totalTimeMs,
                 Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
-                LuceneBenchmark.BenchmarkResult luceneResult) {
+                Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> luceneResults) {
             this.datasetName = datasetName;
             this.mode = mode;
             this.totalTimeMs = totalTimeMs;
             this.usearchResults = Collections.unmodifiableMap(new HashMap<>(usearchResults));
-            this.luceneResult = luceneResult;
+            this.luceneResults = Collections.unmodifiableMap(new HashMap<>(luceneResults));
             this.timestamp = System.currentTimeMillis();
         }
 
@@ -58,8 +58,8 @@ public class SparkBenchmarkCoordinator {
             return usearchResults;
         }
 
-        public LuceneBenchmark.BenchmarkResult getLuceneResult() {
-            return luceneResult;
+        public Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> getLuceneResults() {
+            return luceneResults;
         }
 
         public long getTimestamp() {
@@ -99,7 +99,7 @@ public class SparkBenchmarkCoordinator {
             saveResults(config, results);
 
             // Display comparison table
-            printBenchmarkComparison(results.usearchResults, results.luceneResult);
+            printBenchmarkComparison(results.usearchResults, results.luceneResults);
 
             long totalTime = System.currentTimeMillis() - startTime;
             logger.info("Benchmark completed in {} ms", totalTime);
@@ -137,11 +137,21 @@ public class SparkBenchmarkCoordinator {
             throws Exception {
         logger.info("Running local (single-node) benchmark");
 
-        // Run Lucene benchmark
-        logger.info("Running Lucene benchmark");
+        // Run Lucene benchmarks for each precision (F32 and I8 only)
         progressAccumulator.add(20);
-        LuceneBenchmark luceneBenchmark = new LuceneBenchmark(config, dataset);
-        LuceneBenchmark.BenchmarkResult luceneResult = luceneBenchmark.runBenchmark();
+        Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> luceneResults = new HashMap<>();
+
+        for (BenchmarkConfig.Precision precision : config.getPrecisions()) {
+            // Only run Lucene for F32 and I8 precisions (supported by KnnFloatVectorField and KnnByteVectorField)
+            if (precision != BenchmarkConfig.Precision.F32 && precision != BenchmarkConfig.Precision.I8) {
+                continue;
+            }
+            logger.info("Running Lucene {} benchmark", precision.getName());
+            LuceneBenchmark luceneBenchmark = new LuceneBenchmark(config, dataset, precision);
+            LuceneBenchmark.BenchmarkResult result = luceneBenchmark.runBenchmark();
+            luceneResults.put(precision, result);
+
+        }
 
         // Run USearch benchmarks for each precision
         progressAccumulator.add(30);
@@ -159,11 +169,14 @@ public class SparkBenchmarkCoordinator {
 
         // Log results with clean output
         USearchBenchmark.logBenchmarkResults(usearchResults);
-        LuceneBenchmark.logBenchmarkResults(luceneResult);
+        for (Map.Entry<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> entry : luceneResults.entrySet()) {
+            LuceneBenchmark.logBenchmarkResults(entry.getValue());
+        }
 
         long totalTime = System.currentTimeMillis();
 
-        return new BenchmarkResults(config.getDatasetName(), config.getMode(), totalTime, usearchResults, luceneResult);
+        return new BenchmarkResults(config.getDatasetName(), config.getMode(), totalTime, usearchResults,
+                luceneResults);
     }
 
     private BenchmarkResults runDistributedBenchmark(BenchmarkConfig config, DatasetRegistry.Dataset dataset)
@@ -211,17 +224,21 @@ public class SparkBenchmarkCoordinator {
         // Convert distributed results to single-node format for unified interface
         Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> convertedUSearchResults = convertUSearchSparkResults(
                 usearchSparkResults);
+        Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> convertedLuceneResults = new HashMap<>();
+
+        // For distributed mode, we only run F32 precision currently
         LuceneBenchmark.BenchmarkResult convertedLuceneResult = convertLuceneSparkResult(luceneSparkResult);
+        convertedLuceneResults.put(BenchmarkConfig.Precision.F32, convertedLuceneResult);
 
         return new BenchmarkResults(config.getDatasetName(), config.getMode(), totalTime, convertedUSearchResults,
-                convertedLuceneResult);
+                convertedLuceneResults);
     }
 
     private void printBenchmarkComparison(
             Map<BenchmarkConfig.Precision, USearchBenchmark.BenchmarkResult> usearchResults,
-            LuceneBenchmark.BenchmarkResult luceneResult) {
+            Map<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> luceneResults) {
         // Use the new AsciiTable-based comparison table
-        BenchmarkResultsTable.printComparisonTable(usearchResults, luceneResult);
+        BenchmarkResultsTable.printComparisonTable(usearchResults, luceneResults);
     }
 
     private void saveResults(BenchmarkConfig config, BenchmarkResults results) throws IOException {
@@ -269,14 +286,17 @@ public class SparkBenchmarkCoordinator {
                         result.getRecallAtK().getOrDefault(10, 0.0), result.getRecallAtK().getOrDefault(100, 0.0));
             }
 
-            // Write Lucene result
-            LuceneBenchmark.BenchmarkResult luceneResult = results.getLuceneResult();
-            pw.printf("%d,%s,%s,Lucene,F32,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n", results.getTimestamp(),
-                    results.getDatasetName(), results.getMode().getName(), luceneResult.getIndexingTimeMs(),
-                    luceneResult.getSearchTimeMs(), luceneResult.getThroughputQPS(),
-                    luceneResult.getMemoryUsageBytes() / (1024.0 * 1024.0),
-                    luceneResult.getRecallAtK().getOrDefault(1, 0.0), luceneResult.getRecallAtK().getOrDefault(10, 0.0),
-                    luceneResult.getRecallAtK().getOrDefault(100, 0.0));
+            // Write Lucene results
+            for (Map.Entry<BenchmarkConfig.Precision, LuceneBenchmark.BenchmarkResult> entry : results
+                    .getLuceneResults().entrySet()) {
+
+                LuceneBenchmark.BenchmarkResult result = entry.getValue();
+                pw.printf("%d,%s,%s,Lucene,%s,%d,%d,%.2f,%.2f,%.4f,%.4f,%.4f%n", results.getTimestamp(),
+                        results.getDatasetName(), results.getMode().getName(), entry.getKey().getName().toUpperCase(),
+                        result.getIndexingTimeMs(), result.getSearchTimeMs(), result.getThroughputQPS(),
+                        result.getMemoryUsageBytes() / (1024.0 * 1024.0), result.getRecallAtK().getOrDefault(1, 0.0),
+                        result.getRecallAtK().getOrDefault(10, 0.0), result.getRecallAtK().getOrDefault(100, 0.0));
+            }
         }
 
         logger.info("Summary CSV updated: {}", csvFile.toAbsolutePath());
