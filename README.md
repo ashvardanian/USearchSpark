@@ -37,21 +37,21 @@ Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki d
 ┌──────────────┬──────────────┬──────────────┬──────────────┬─────────────┐
 │ Engine       │ Precision    │ IPS          │ QPS          │ Memory      │
 ├──────────────┼──────────────┼──────────────┼──────────────┼─────────────┤
-│ Lucene       │ F32          │ 70,212       │ 491-505      │ 44.1 GB     │
-│ USearch      │ F32          │ 99,694       │ 121,951      │ 96.0 GB     │
-│ USearch      │ F16          │ 123,106      │ 147,059      │ 64.0 GB     │
-│ USearch      │ BF16         │ 113,645      │ 129,870      │ 64.0 GB     │
-│ USearch      │ I8           │ 138,400      │ 158,730      │ 48.0 GB     │
+│ Lucene       │ F32          │ 19,514       │ 370          │ 55.2 GB     │
+│ USearch      │ F32          │ 95,998       │ 123,457      │ 96.0 GB     │
+│ USearch      │ F16          │ 123,223      │ 149,254      │ 64.0 GB     │
+│ USearch      │ BF16         │ 112,432      │ 129,870      │ 64.0 GB     │
+│ USearch      │ I8           │ 137,229      │ 163,934      │ 48.0 GB     │
 └──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
 🎯 RECALL & NDCG METRICS
 ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
 │ Engine      │ Precision   │ Recall@10   │ NDCG@10     │ Recall@100  │ NDCG@100    │
 ├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
-│ Lucene      │ F32         │ 81.97%      │ 82.53%      │ 86.09%      │ 85.05%      │
-│ USearch     │ F32         │ 90.35%      │ 88.77%      │ 95.92%      │ 95.47%      │
-│ USearch     │ F16         │ 90.46%      │ 88.60%      │ 95.86%      │ 95.30%      │
-│ USearch     │ BF16        │ 90.48%      │ 88.86%      │ 96.10%      │ 95.61%      │
-│ USearch     │ I8          │ 90.25%      │ 88.71%      │ 95.85%      │ 95.33%      │
+│ Lucene      │ F32         │ 88.38%      │ 87.52%      │ 93.36%      │ 91.80%      │
+│ USearch     │ F32         │ 90.16%      │ 88.64%      │ 95.59%      │ 95.26%      │
+│ USearch     │ F16         │ 90.27%      │ 88.55%      │ 95.77%      │ 95.26%      │
+│ USearch     │ BF16        │ 90.04%      │ 88.64%      │ 95.90%      │ 95.34%      │
+│ USearch     │ I8          │ 90.11%      │ 88.56%      │ 95.89%      │ 95.23%      │
 └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
@@ -198,3 +198,22 @@ This creates a 3-node Kubernetes cluster locally and runs the benchmark in a tru
 ```bash
 gradle spotlessApply
 ```
+
+## Tuning Lucene
+
+Many attempts have been made to tune Lucene and squeeze better numbers out of it.
+In every case an improvement along one metric (IPS, QPS, Recall) has come at the cost of another.
+That's common for search engines and suggests that we are approaching the limitations of the engine.
+Recent optimizations doubled search performance from 380 QPS to 763 QPS.
+
+Here are some of the ideas considered and sometimes accepted:
+
+- Using `StoredField` instead of `NumericDocValuesField` for IDs.
+- Tuning the size and number of index segments to allow query-level parallelism.
+- Fixed 4GB segment size instead of dynamic calculation based on CPU cores.
+- Force merging segments when count exceeds optimal threshold.
+- Eliminated thread explosion where 191 threads were used per individual query.
+- Batch query processing using configurable `--batch-size` parameter.
+- Replaced `ByteBuffersDirectory` with `DynamicByteBuffersDirectory` to handle >4GB indexes.
+- Aggressive concurrent merge scheduling with progress tracking.
+- Custom HNSW codec selection with fallback to best available implementation.

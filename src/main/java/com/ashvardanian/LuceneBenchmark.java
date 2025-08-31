@@ -175,12 +175,23 @@ public class LuceneBenchmark {
         IndexWriterConfig indexConfig = new IndexWriterConfig();
         indexConfig.setUseCompoundFile(false);
 
-        // Keep segments reasonably small to enable per-segment parallelism in search
-        // and avoid a single huge segment which would serialize HNSW search
+        // Fixed 4GB segment size for predictable performance
+        
+        // Estimate index size: vector data + HNSW overhead (~2.5x for graph structure)
+        long vectorBytes = (long) numBaseVectors * baseVectors.getCols() * 4; // f32 = 4 bytes per float
+        long estimatedIndexSizeBytes = (long)(vectorBytes * 2.5); // HNSW overhead factor
+        long estimatedIndexSizeMB = estimatedIndexSizeBytes / (1024 * 1024);
+        
+        // Fixed 4GB segments
+        int optimalSegmentSizeMB = 4096; // 4GB segments
+        long estimatedSegments = estimatedIndexSizeMB / optimalSegmentSizeMB;
+        
+        System.out.println(String.format("📊 Target segment size: 4GB (expecting ~%d segments for %,d MB index)",
+                estimatedSegments, estimatedIndexSizeMB));
+        
         TieredMergePolicy mergePolicy = new TieredMergePolicy();
-        mergePolicy.setMaxMergedSegmentMB(1024); // ~1GB max merged segment
-        mergePolicy.setSegmentsPerTier(10);
-        mergePolicy.setFloorSegmentMB(16);
+        mergePolicy.setMaxMergedSegmentMB(optimalSegmentSizeMB);
+        mergePolicy.setFloorSegmentMB(256); // Reasonable floor
         indexConfig.setMergePolicy(mergePolicy);
 
         // Configure HNSW parameters (higher -> better recall, more memory/indexing time)
@@ -191,10 +202,10 @@ public class LuceneBenchmark {
         indexConfig.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
 
         // Configure aggressive concurrent merge scheduler for maximum speed with progress reporting
-        int availableCores = Runtime.getRuntime().availableProcessors();
         final java.util.concurrent.atomic.AtomicLong totalMergeTime = new java.util.concurrent.atomic.AtomicLong(0);
         final java.util.concurrent.atomic.AtomicLong totalIndexingStartTime = new java.util.concurrent.atomic.AtomicLong(
                 System.currentTimeMillis());
+        final java.util.concurrent.atomic.AtomicInteger mergeCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
         org.apache.lucene.index.ConcurrentMergeScheduler mergeScheduler = new org.apache.lucene.index.ConcurrentMergeScheduler() {
             @Override
@@ -202,25 +213,33 @@ public class LuceneBenchmark {
                     throws IOException {
                 long startMerge = System.currentTimeMillis();
                 double sizeMB = merge.estimatedMergeBytes / 1024.0 / 1024.0;
-                System.out.println(
-                        String.format("🔄 Starting merge of %d segments (%.1f MB)", merge.segments.size(), sizeMB));
+                
+                // Only log significant merges (>50MB) or every 20th merge to reduce noise
+                int currentMergeCount = mergeCount.incrementAndGet();
+                boolean shouldLog = sizeMB > 50.0 || (currentMergeCount % 20 == 0);
+                
+                if (shouldLog) {
+                    System.out.println(
+                            String.format("🔄 Merge %d: %d segments (%.1f MB)", currentMergeCount, merge.segments.size(), sizeMB));
+                }
 
                 super.doMerge(mergeSource, merge);
 
                 long mergeTime = System.currentTimeMillis() - startMerge;
                 totalMergeTime.addAndGet(mergeTime);
-                double throughputMBps = sizeMB / (mergeTime / 1000.0);
-
-                // Calculate adjusted IPS including merge overhead
-                long totalElapsed = System.currentTimeMillis() - totalIndexingStartTime.get();
-                double adjustedIPS = totalElapsed > 0 ? (numBaseVectors * 1000.0) / totalElapsed : 0.0;
-
-                System.out.println(String.format("✅ Completed merge in %,d ms (%.1f MB/s) - Adjusted IPS: %.0f",
-                        mergeTime, throughputMBps, adjustedIPS));
+                
+                if (shouldLog) {
+                    double throughputMBps = sizeMB / (mergeTime / 1000.0);
+                    long totalElapsed = System.currentTimeMillis() - totalIndexingStartTime.get();
+                    double adjustedIPS = totalElapsed > 0 ? (numBaseVectors * 1000.0) / totalElapsed : 0.0;
+                    System.out.println(String.format("✅ Merge %d completed: %,d ms (%.1f MB/s) - Adjusted IPS: %.0f",
+                            currentMergeCount, mergeTime, throughputMBps, adjustedIPS));
+                }
             }
         };
 
         // Use ALL available threads for merging to maximize speed
+        int availableCores = Runtime.getRuntime().availableProcessors();
         mergeScheduler.setMaxMergesAndThreads(availableCores * 2, availableCores);
         indexConfig.setMergeScheduler(mergeScheduler);
 
@@ -308,8 +327,27 @@ public class LuceneBenchmark {
         }
         indexProgress.complete(numBaseVectors);
 
-        // Commit and close (merging happens automatically with our scheduler)
+        // Commit changes
         indexWriter.commit();
+        
+        // Optional: Force merge to target segment count if we have too many segments
+        int targetSegments = (int)(estimatedIndexSizeMB / 4096);
+        if (targetSegments < 1) targetSegments = 1;
+        
+        // Check current segment count before deciding to force merge
+        DirectoryReader tempReader = DirectoryReader.open(indexWriter);
+        int currentSegments = tempReader.leaves().size();
+        tempReader.close();
+        
+        if (currentSegments > targetSegments * 2) {
+            System.out.println(String.format("🔧 Force merging %d segments to %d target segments...", 
+                currentSegments, targetSegments));
+            long mergeStart = System.currentTimeMillis();
+            indexWriter.forceMerge(targetSegments);
+            long mergeTime = System.currentTimeMillis() - mergeStart;
+            System.out.println(String.format("✅ Force merge completed in %,d ms", mergeTime));
+        }
+        
         indexWriter.close();
 
         long indexingTime = System.currentTimeMillis() - startIndexing;
@@ -321,8 +359,8 @@ public class LuceneBenchmark {
             double mergeOverheadPercent = (totalMergeTimeValue * 100.0) / indexingTime;
             double pureIPS = pureIndexingTime > 0 ? (numBaseVectors * 1000.0) / pureIndexingTime : 0.0;
             double totalIPS = indexingTime > 0 ? (numBaseVectors * 1000.0) / indexingTime : 0.0;
-            System.out.println(String.format("⏱️  Merge overhead: %,d ms (%.1f%%) - Pure IPS: %.0f, Total IPS: %.0f",
-                    totalMergeTimeValue, mergeOverheadPercent, pureIPS, totalIPS));
+            System.out.println(String.format("⏱️  Merge overhead: %,d ms (%.1f%%) from %d merges - Pure IPS: %.0f, Total IPS: %.0f",
+                    totalMergeTimeValue, mergeOverheadPercent, mergeCount.get(), pureIPS, totalIPS));
         }
 
         long memoryAfter = getMemoryUsage();
@@ -339,24 +377,17 @@ public class LuceneBenchmark {
 
         // Report number of segments/leaves for parallelism insight
         int leafCount = indexReader.leaves().size();
-        System.out.println("🪵 Index segments (leaves): " + leafCount);
+        System.out.println(String.format("🪵 Index segments: %d", leafCount));
 
-        // Configure IndexSearcher with a balanced thread pool to parallelize
-        // per-segment work
-        int totalThreads = config.getNumThreads() != -1
-                ? config.getNumThreads()
-                : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
-
-        // Per-query parallelism is bounded by number of leaves
-        int perQueryThreads = Math.max(1, Math.min(totalThreads, leafCount));
+        // Configure IndexSearcher to use all available cores
+        int availableThreads = Runtime.getRuntime().availableProcessors();
 
         IndexSearcher indexSearcher;
-        if (perQueryThreads > 1) {
+        if (leafCount > 1) {
             java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors
-                    .newFixedThreadPool(perQueryThreads);
+                    .newFixedThreadPool(availableThreads);
             indexSearcher = new IndexSearcher(indexReader, executor);
-            System.out.println("🔧 IndexSearcher per-query threads: " + perQueryThreads + " (total desired: "
-                    + totalThreads + ")");
+            System.out.println("🔧 IndexSearcher threads: " + availableThreads + " for " + leafCount + " segments");
         } else {
             indexSearcher = new IndexSearcher(indexReader);
         }
@@ -367,11 +398,8 @@ public class LuceneBenchmark {
 
         // Calculate search metrics (includes both search and accuracy calculation)
         System.out.println("🔍 Searching...");
-        // Balance outer query concurrency to avoid oversubscription when per-query
-        // parallelism is used
-        int outerQueryParallelism = Math.max(1, totalThreads / Math.max(1, perQueryThreads));
         SearchMetrics searchMetrics = calculateSearchMetrics(indexSearcher, queryVectors, numQueries,
-                config.getKValues(), outerQueryParallelism);
+                config.getKValues());
 
         // Use the total search time (includes ID retrieval for realistic benchmarking)
         long searchTime = searchMetrics.totalSearchTimeMs;
@@ -401,15 +429,14 @@ public class LuceneBenchmark {
         int indexingThreadsUsed = (config.getNumThreads() != -1)
                 ? config.getNumThreads()
                 : java.util.concurrent.ForkJoinPool.commonPool().getParallelism();
-        int searchThreadsUsed = perQueryThreads * outerQueryParallelism;
         double ipsTotal = numBaseVectors / (indexingTime / 1000.0);
         double ipsPerCore = indexingThreadsUsed > 0 ? ipsTotal / indexingThreadsUsed : 0.0;
-        double pureQpsPerCore = searchThreadsUsed > 0 ? pureSearchQPS / searchThreadsUsed : 0.0;
-        double idQpsPerCore = searchThreadsUsed > 0 ? idRetrievalQPS / searchThreadsUsed : 0.0;
-        double totalQpsPerCore = searchThreadsUsed > 0 ? throughputQPS / searchThreadsUsed : 0.0;
+        double pureQpsPerCore = availableThreads > 0 ? pureSearchQPS / availableThreads : 0.0;
+        double idQpsPerCore = availableThreads > 0 ? idRetrievalQPS / availableThreads : 0.0;
+        double totalQpsPerCore = availableThreads > 0 ? throughputQPS / availableThreads : 0.0;
 
-        System.out.println(String.format("   Threads — indexing: %d, search per-query: %d, outer: %d (total: %d)",
-                indexingThreadsUsed, perQueryThreads, outerQueryParallelism, searchThreadsUsed));
+        System.out.println(String.format("   Threads — indexing: %d, search: %d",
+                indexingThreadsUsed, availableThreads));
         System.out.println(String.format(
                 "   Per-core — Indexing: %,.0f IPS/core; Pure: %,.2f QPS/core; ID: %,.2f QPS/core; Total: %,.2f QPS/core",
                 ipsPerCore, pureQpsPerCore, idQpsPerCore, totalQpsPerCore));
@@ -440,7 +467,7 @@ public class LuceneBenchmark {
     }
 
     private SearchMetrics calculateSearchMetrics(IndexSearcher indexSearcher,
-            BinaryVectorLoader.VectorDataset queryVectors, int numQueries, int[] kValues, int outerQueryParallelism)
+            BinaryVectorLoader.VectorDataset queryVectors, int numQueries, int[] kValues)
             throws Exception {
         String vectorFieldName = "vector";
 
@@ -452,15 +479,16 @@ public class LuceneBenchmark {
         // Find maximum K value for single search optimization
         int maxK = Arrays.stream(kValues).max().orElse(100);
 
-        // Use controlled outer parallelism to avoid oversubscription
-        int numThreads = Math.max(1, outerQueryParallelism);
-        System.out.println("🔍 Search concurrency — per-query: "
-                + Math.max(1,
-                        Math.min(indexSearcher.getIndexReader().leaves().size(),
-                                config.getNumThreads() != -1
-                                        ? config.getNumThreads()
-                                        : java.util.concurrent.ForkJoinPool.commonPool().getParallelism()))
-                + ", outer: " + numThreads);
+        // Submit queries in batches matching config.getBatchSize()
+        int batchSize = config.getBatchSize();
+        int numBatches = (numQueries + batchSize - 1) / batchSize;
+        int availableCores = Runtime.getRuntime().availableProcessors();
+        
+        System.out.println(String.format("🔍 Processing %d queries in %d batches of %d", 
+            numQueries, numBatches, batchSize));
+
+        // Use all available cores for batch processing
+        java.util.concurrent.ExecutorService batchExecutor = java.util.concurrent.Executors.newFixedThreadPool(availableCores);
 
         // Phase 1: Pure HNSW search (no ID retrieval)
         ProgressLogger pureSearchProgress = new ProgressLogger("Pure search k=" + maxK, numQueries,
@@ -468,108 +496,97 @@ public class LuceneBenchmark {
         TopDocs[] pureSearchResults = new TopDocs[numQueries];
 
         long startPureSearch = System.currentTimeMillis();
-        if (numThreads == 1) {
-            float[] queryBuffer = new float[queryVectors.getCols()];
-            for (int i = 0; i < numQueries; i++) {
-                queryVectors.getVectorAsFloat(i, queryBuffer);
-                KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer, maxK);
-                // For KNN, IndexSearcher will parallelize across segments when configured
-                pureSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
-                pureSearchProgress.increment();
+        
+        for (int batch = 0; batch < numBatches; batch++) {
+            int batchStart = batch * batchSize;
+            int batchEnd = Math.min(batchStart + batchSize, numQueries);
+            int currentBatchSize = batchEnd - batchStart;
+            
+            // Submit all queries in this batch concurrently
+            List<CompletableFuture<TopDocs>> batchFutures = new ArrayList<>(currentBatchSize);
+            
+            for (int i = batchStart; i < batchEnd; i++) {
+                final int queryId = i;
+                float[] queryVector = new float[queryVectors.getCols()];
+                queryVectors.getVectorAsFloat(queryId, queryVector);
+                
+                CompletableFuture<TopDocs> future = CompletableFuture.supplyAsync(() -> {
+                    KnnFloatVectorQuery query = new KnnFloatVectorQuery(vectorFieldName, queryVector, maxK);
+                    try {
+                        return indexSearcher.search(query, maxK);
+                    } catch (IOException e) {
+                        throw new RuntimeException("Search failed for query " + queryId, e);
+                    }
+                }, batchExecutor);
+                
+                batchFutures.add(future);
             }
-        } else {
-            // Multi-threaded search with clean work partitioning
-            ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+            
+            // Wait for this batch to complete before starting next batch
             try {
-                List<CompletableFuture<Void>> futures = new ArrayList<>();
-
-                // Partition work evenly across threads
-                int queriesPerThread = numQueries / numThreads;
-                int remainingQueries = numQueries % numThreads;
-
-                for (int threadId = 0; threadId < numThreads; threadId++) {
-                    final int startIdx = threadId * queriesPerThread + Math.min(threadId, remainingQueries);
-                    final int endIdx = startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
-                    final int finalThreadId = threadId;
-
-                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                        try {
-                            float[] queryBuffer = new float[queryVectors.getCols()];
-                            for (int i = startIdx; i < endIdx; i++) {
-                                queryVectors.getVectorAsFloat(i, queryBuffer);
-                                KnnFloatVectorQuery vectorQuery = new KnnFloatVectorQuery(vectorFieldName, queryBuffer,
-                                        maxK);
-                                pureSearchResults[i] = indexSearcher.search(vectorQuery, maxK);
-                                pureSearchProgress.increment();
-                            }
-                        } catch (Exception e) {
-                            throw new RuntimeException("Pure search failed in thread " + finalThreadId + " (range "
-                                    + startIdx + "-" + endIdx + ")", e);
-                        }
-                    }, customThreadPool);
-
-                    futures.add(future);
+                CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0])).join();
+                
+                // Collect results
+                for (int i = 0; i < currentBatchSize; i++) {
+                    pureSearchResults[batchStart + i] = batchFutures.get(i).get();
+                    pureSearchProgress.increment();
                 }
-
-                // Wait for all threads to complete
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
-
-            } finally {
-                customThreadPool.shutdown();
+            } catch (Exception e) {
+                throw new RuntimeException("Batch " + batch + " failed", e);
             }
         }
+        
         long pureSearchTime = System.currentTimeMillis() - startPureSearch;
         pureSearchProgress.complete(numQueries);
+        batchExecutor.shutdown();
 
         // Phase 2: ID retrieval from search results
         ProgressLogger idRetrievalProgress = new ProgressLogger("ID retrieval k=" + maxK, numQueries,
                 ProgressLogger.RateUnit.QPS);
         long startIdRetrieval = System.currentTimeMillis();
 
-        if (numThreads == 1) {
-            for (int i = 0; i < numQueries; i++) {
-                allSearchResults[i] = extractDocumentIds(pureSearchResults[i], maxK, indexSearcher);
-                idRetrievalProgress.increment();
+        // Use same batch processing approach for ID retrieval
+        java.util.concurrent.ExecutorService idExecutor = java.util.concurrent.Executors.newFixedThreadPool(availableCores);
+        
+        for (int batch = 0; batch < numBatches; batch++) {
+            int batchStart = batch * batchSize;
+            int batchEnd = Math.min(batchStart + batchSize, numQueries);
+            int currentBatchSize = batchEnd - batchStart;
+            
+            // Submit all ID retrievals in this batch concurrently
+            List<CompletableFuture<long[]>> idFutures = new ArrayList<>(currentBatchSize);
+            
+            for (int i = batchStart; i < batchEnd; i++) {
+                final int queryId = i;
+                
+                CompletableFuture<long[]> future = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return extractDocumentIds(pureSearchResults[queryId], maxK, indexSearcher);
+                    } catch (IOException e) {
+                        throw new RuntimeException("ID retrieval failed for query " + queryId, e);
+                    }
+                }, idExecutor);
+                
+                idFutures.add(future);
             }
-        } else {
-            // Multi-threaded ID retrieval with clean work partitioning
-            ForkJoinPool customThreadPool = new ForkJoinPool(numThreads);
+            
+            // Wait for this batch to complete
             try {
-                List<CompletableFuture<Void>> futures = new ArrayList<>();
-
-                // Partition work evenly across threads
-                int queriesPerThread = numQueries / numThreads;
-                int remainingQueries = numQueries % numThreads;
-
-                for (int threadId = 0; threadId < numThreads; threadId++) {
-                    final int startIdx = threadId * queriesPerThread + Math.min(threadId, remainingQueries);
-                    final int endIdx = startIdx + queriesPerThread + (threadId < remainingQueries ? 1 : 0);
-                    final int finalThreadId = threadId;
-
-                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                        try {
-                            for (int i = startIdx; i < endIdx; i++) {
-                                allSearchResults[i] = extractDocumentIds(pureSearchResults[i], maxK, indexSearcher);
-                                idRetrievalProgress.increment();
-                            }
-                        } catch (Exception e) {
-                            throw new RuntimeException("ID retrieval failed in thread " + finalThreadId + " (range "
-                                    + startIdx + "-" + endIdx + ")", e);
-                        }
-                    }, customThreadPool);
-
-                    futures.add(future);
+                CompletableFuture.allOf(idFutures.toArray(new CompletableFuture[0])).join();
+                
+                // Collect results
+                for (int i = 0; i < currentBatchSize; i++) {
+                    allSearchResults[batchStart + i] = idFutures.get(i).get();
+                    idRetrievalProgress.increment();
                 }
-
-                // Wait for all threads to complete
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
-
-            } finally {
-                customThreadPool.shutdown();
+            } catch (Exception e) {
+                throw new RuntimeException("ID retrieval batch " + batch + " failed", e);
             }
         }
+        
         long idRetrievalTime = System.currentTimeMillis() - startIdRetrieval;
         idRetrievalProgress.complete(numQueries);
+        idExecutor.shutdown();
 
         System.out.println("📊 Calculating accuracy metrics...");
 
