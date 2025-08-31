@@ -265,10 +265,8 @@ public class LuceneBenchmark {
 
                 if (shouldLog) {
                     double throughputMBps = sizeMB / (mergeTime / 1000.0);
-                    long totalElapsed = System.currentTimeMillis() - totalIndexingStartTime.get();
-                    double adjustedIPS = totalElapsed > 0 ? (numBaseVectors * 1000.0) / totalElapsed : 0.0;
-                    System.out.println(String.format("✅ Merge %d completed: %,d ms (%.1f MB/s) - Adjusted IPS: %.0f",
-                            currentMergeCount, mergeTime, throughputMBps, adjustedIPS));
+                    System.out.println(String.format("✅ Merge %d completed: %,d ms (%.1f MB/s)", currentMergeCount,
+                            mergeTime, throughputMBps));
                 }
             }
         };
