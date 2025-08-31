@@ -64,7 +64,7 @@ public class VectorProcessor {
             if (batches % 10 == 0 || batches == totalBatches) {
                 long elapsedMs = System.currentTimeMillis() - startTime.get();
                 double ips = elapsedMs > 0 ? (vectors * 1000.0) / elapsedMs : 0;
-                double progress = (double) batches / totalBatches * 100;
+                double progress = (double)batches / totalBatches * 100;
 
                 System.out.printf("\r🔄 %s: %.1f%% (%d/%d batches, %,d vectors, %.0f IPS)", operationName, progress,
                         batches, totalBatches, vectors, ips);
@@ -105,7 +105,7 @@ public class VectorProcessor {
                     float[] vector = dataset.getVectorAsFloat(start + i);
                     for (int j = 0; j < dimensions; j++) {
                         // Convert float to byte for I8 quantization
-                        batchVectors[i * dimensions + j] = (byte) Math.round(vector[j] * 127.0f);
+                        batchVectors[i * dimensions + j] = (byte)Math.round(vector[j] * 127.0f);
                     }
                 }
                 batches.add(new VectorBatch(keys, batchVectors, currentBatchSize, dimensions, start));

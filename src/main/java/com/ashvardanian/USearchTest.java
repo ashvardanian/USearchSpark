@@ -16,7 +16,7 @@ public class USearchTest {
             // Test basic operations
             float[] testVector = new float[128];
             for (int i = 0; i < 128; i++) {
-                testVector[i] = (float) Math.random();
+                testVector[i] = (float)Math.random();
             }
 
             index.add(1, testVector);

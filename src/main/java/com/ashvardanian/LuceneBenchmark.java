@@ -143,6 +143,37 @@ public class LuceneBenchmark {
         this.precision = precision;
     }
 
+    /**
+     * Monitors memory pressure and triggers GC if needed to prevent OOM errors. Called periodically during indexing to
+     * ensure stable performance.
+     */
+    private void checkMemoryPressure(IndexWriter indexWriter, long gcThresholdBytes, int vectorIndex) {
+        if (vectorIndex % 1000 != 0) {
+            return; // Only check every 1000 vectors
+        }
+
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+
+        if (usedMemory > gcThresholdBytes) {
+            System.out.println(String.format("⚠️  Memory pressure detected (%,d MB used), pausing for GC...",
+                    usedMemory / (1024 * 1024)));
+            try {
+                indexWriter.commit(); // Flush pending changes
+                System.gc(); // Request GC
+                Thread.sleep(500); // Give GC time to work
+
+                // Log memory after GC
+                long newUsedMemory = runtime.totalMemory() - runtime.freeMemory();
+                System.out.println(
+                        String.format("✅ GC completed (%,d MB freed)", (usedMemory - newUsedMemory) / (1024 * 1024)));
+            } catch (Exception e) {
+                // Log but don't fail - memory management is best-effort
+                System.err.println("Warning: Failed to manage memory pressure: " + e.getMessage());
+            }
+        }
+    }
+
     public BenchmarkResult runBenchmark() throws Exception {
         System.out.println("\n🔍 Starting Lucene HNSW benchmark for dataset: " + dataset.getDefinition().getName()
                 + " with precision: " + precision.getName());
@@ -251,6 +282,13 @@ public class LuceneBenchmark {
         System.out.println("🚀 In-memory config: 512MB RAM buffer, tiered merges; HNSW M=" + config.getHnswMaxConn()
                 + ", beamWidth=" + config.getHnswBeamWidth() + "; " + availableCores + " available cores");
 
+        // Monitor memory pressure and GC activity for adaptive indexing
+        Runtime runtime = Runtime.getRuntime();
+        long maxHeap = runtime.maxMemory();
+        long gcThresholdBytes = (long)(maxHeap * 0.7); // Pause at 70% heap usage
+        System.out.println(String.format("💾 Memory monitoring: Max heap %,d MB, pause threshold at %,d MB",
+                maxHeap / (1024 * 1024), gcThresholdBytes / (1024 * 1024)));
+
         // Create index writer
         IndexWriter indexWriter = new IndexWriter(directory, indexConfig);
 
@@ -275,6 +313,7 @@ public class LuceneBenchmark {
             if (precision == BenchmarkConfig.Precision.F32) {
                 float[] vectorBuffer = new float[baseVectors.getCols()];
                 for (int i = 0; i < numBaseVectors; i++) {
+                    checkMemoryPressure(indexWriter, gcThresholdBytes, i);
                     baseVectors.getVectorAsFloat(i, vectorBuffer);
                     long finalId = (vectorIds != null && i < vectorIds.getNumVectors()) ? vectorIds.getId(i) : i;
                     Document document = new Document();
@@ -286,6 +325,7 @@ public class LuceneBenchmark {
             } else if (precision == BenchmarkConfig.Precision.I8) {
                 byte[] vectorBuffer = new byte[baseVectors.getCols()];
                 for (int i = 0; i < numBaseVectors; i++) {
+                    checkMemoryPressure(indexWriter, gcThresholdBytes, i);
                     baseVectors.getVectorAsByte(i, vectorBuffer);
                     long finalId = (vectorIds != null && i < vectorIds.getNumVectors()) ? vectorIds.getId(i) : i;
                     Document document = new Document();
@@ -318,6 +358,9 @@ public class LuceneBenchmark {
                                 float[] vectorBuffer = new float[baseVectors.getCols()];
                                 float[] reusedVector = new float[baseVectors.getCols()];
                                 for (int i = startIdx; i < endIdx; i++) {
+                                    // Check memory pressure periodically
+                                    checkMemoryPressure(indexWriter, gcThresholdBytes, i);
+
                                     baseVectors.getVectorAsFloat(i, reusedVector);
                                     System.arraycopy(reusedVector, 0, vectorBuffer, 0, baseVectors.getCols());
                                     long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
@@ -333,6 +376,9 @@ public class LuceneBenchmark {
                                 byte[] vectorBuffer = new byte[baseVectors.getCols()];
                                 byte[] reusedVector = new byte[baseVectors.getCols()];
                                 for (int i = startIdx; i < endIdx; i++) {
+                                    // Check memory pressure periodically
+                                    checkMemoryPressure(indexWriter, gcThresholdBytes, i);
+
                                     baseVectors.getVectorAsByte(i, reusedVector);
                                     System.arraycopy(reusedVector, 0, vectorBuffer, 0, baseVectors.getCols());
                                     long finalId = (vectorIds != null && i < vectorIds.getNumVectors())
@@ -462,7 +508,7 @@ public class LuceneBenchmark {
         directory.close();
 
         System.out.println(String.format(
-                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Pure Search: %,dms (%,.0f QPS), +ID Retrieval: %,dms (%,.0f QPS), Total: %,dms (%,.0f QPS)",
+                "✅ Lucene HNSW benchmark completed - Indexing: %,dms, Pure Search: %,dms (%,.0f QPS), ID Retrieval: %,dms (%,.0f QPS), Total Search: %,dms (%,.0f QPS)",
                 indexingTime, searchMetrics.pureSearchTimeMs, pureSearchQPS, searchMetrics.idRetrievalTimeMs,
                 idRetrievalQPS, searchTime, throughputQPS));
 

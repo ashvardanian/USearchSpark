@@ -127,9 +127,7 @@ public class USearchSparkBenchmark {
 
         // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors into Spark RDDs... ");
-        int maxBaseVectors = config.getMaxVectors() > 0
-                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
-                : -1;
+        int maxBaseVectors = config.getMaxVectors() > 0 ? (int)Math.min(config.getMaxVectors(), Integer.MAX_VALUE) : -1;
         BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
                 maxBaseVectors);
         BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
@@ -269,7 +267,7 @@ public class USearchSparkBenchmark {
 
         return new BenchmarkResult(precision, indexingTime, metrics.searchTimeMs,
                 numQueries / (metrics.searchTimeMs / 1000.0), metrics.recallAtK, metrics.ndcgAtK, memoryUsage,
-                numBaseVectors, baseVectors.getCols(), (int) numIndexedShards);
+                numBaseVectors, baseVectors.getCols(), (int)numIndexedShards);
     }
 
     private JavaPairRDD<Integer, float[]> createVectorRDD(BinaryVectorLoader.VectorDataset vectors, int numShards,
@@ -360,7 +358,7 @@ public class USearchSparkBenchmark {
 
                 List<SearchResult> searchResults = new ArrayList<>();
                 for (int i = 0; i < results.length; i++) {
-                    searchResults.add(new SearchResult((int) results[i], 1.0f / (i + 1))); // Simple scoring
+                    searchResults.add(new SearchResult((int)results[i], 1.0f / (i + 1))); // Simple scoring
                 }
 
                 return searchResults;
@@ -404,7 +402,7 @@ public class USearchSparkBenchmark {
                     queryRecall = BinaryVectorLoader.calculateRecallAtK(groundTruth, i, resultsAtK, k);
                     queryNdcg = BinaryVectorLoader.calculateNDCGAtK(groundTruth, i, resultsAtK, k);
                 } else {
-                    queryRecall = Math.min(1.0, (double) actualK / k);
+                    queryRecall = Math.min(1.0, (double)actualK / k);
                 }
 
                 totalRecall += queryRecall;
@@ -443,7 +441,7 @@ public class USearchSparkBenchmark {
 
     private long estimateDistributedMemoryUsage(int numVectors, int dimensions) {
         // Rough estimation: each vector takes ~4 bytes per dimension + index overhead
-        return (long) numVectors * dimensions * 4 * 2; // 2x for index overhead
+        return (long)numVectors * dimensions * 4 * 2; // 2x for index overhead
     }
 
     // Helper classes

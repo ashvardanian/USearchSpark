@@ -112,9 +112,7 @@ public class USearchBenchmark {
 
         // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors... ");
-        int maxBaseVectors = config.getMaxVectors() > 0
-                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
-                : -1;
+        int maxBaseVectors = config.getMaxVectors() > 0 ? (int)Math.min(config.getMaxVectors(), Integer.MAX_VALUE) : -1;
         BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
                 maxBaseVectors);
         BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
@@ -157,9 +155,7 @@ public class USearchBenchmark {
 
         // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors... ");
-        int maxBaseVectors = config.getMaxVectors() > 0
-                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
-                : -1;
+        int maxBaseVectors = config.getMaxVectors() > 0 ? (int)Math.min(config.getMaxVectors(), Integer.MAX_VALUE) : -1;
         BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
                 maxBaseVectors);
         BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
@@ -248,7 +244,7 @@ public class USearchBenchmark {
         Runtime runtime = Runtime.getRuntime();
         long maxMemory = runtime.maxMemory();
         long freeMemory = runtime.freeMemory();
-        long estimatedMemoryNeeded = (long) numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough
+        long estimatedMemoryNeeded = (long)numBaseVectors * baseVectors.getCols() * (useByteData ? 1 : 4) * 2; // Rough
         // estimate
 
         System.out.println(String.format("💾 Memory: Max: %,d MB, Free: %,d MB, Estimated needed: %,d MB",
@@ -510,7 +506,7 @@ public class USearchBenchmark {
                 // Convert long[] to int[] and map through vector IDs if available
                 int[] intResults = new int[actualK];
                 for (int j = 0; j < actualK; j++) {
-                    int vectorIndex = (int) resultsAtK[j];
+                    int vectorIndex = (int)resultsAtK[j];
                     // Map through vector IDs if available (for subset support)
                     if (vectorIds != null && vectorIndex < vectorIds.getNumVectors()) {
                         intResults[j] = vectorIds.getId(vectorIndex);

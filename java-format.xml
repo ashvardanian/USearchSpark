@@ -16,5 +16,9 @@
         <setting id="org.eclipse.jdt.core.formatter.blank_lines_before_imports" value="1"/>
         <setting id="org.eclipse.jdt.core.formatter.blank_lines_after_imports" value="1"/>
         <setting id="org.eclipse.jdt.core.formatter.blank_lines_between_import_groups" value="0"/>
+        <!-- Allow multiple blank lines and don't reduce them -->
+        <setting id="org.eclipse.jdt.core.formatter.number_of_empty_lines_to_preserve" value="2"/>
+        <!-- No space after cast -->
+        <setting id="org.eclipse.jdt.core.formatter.insert_space_after_closing_paren_in_cast" value="do not insert"/>
     </profile>
 </profiles>

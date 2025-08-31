@@ -84,7 +84,7 @@ public class ProgressLogger {
 
             // Atomic time-check update - only one thread logs per interval
             if (now - lastTime >= intervalMs && lastLogTime.compareAndSet(lastTime, now)) {
-                double progress = (double) newProgress / totalItems * 100.0;
+                double progress = (double)newProgress / totalItems * 100.0;
                 long elapsed = now - startTime;
                 double rate = elapsed > 0 ? (newProgress * 1000.0) / elapsed : 0;
 

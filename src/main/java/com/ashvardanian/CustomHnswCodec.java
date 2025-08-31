@@ -63,13 +63,13 @@ public class CustomHnswCodec extends FilterCodec {
                     Object inst = ctor.newInstance(m, beamWidth);
                     System.out.println(
                             "🔧 CustomHnswCodec: Using " + cname + " with M=" + m + ", beamWidth=" + beamWidth);
-                    return (KnnVectorsFormat) inst;
+                    return (KnnVectorsFormat)inst;
                 } catch (NoSuchMethodException e) {
                     // Fallback: default constructor, parameters not supported
                     Object inst = cls.getDeclaredConstructor().newInstance();
                     System.out.println("⚠️  CustomHnswCodec: Using " + cname
                             + " with DEFAULT parameters (M/beamWidth not supported)");
-                    return (KnnVectorsFormat) inst;
+                    return (KnnVectorsFormat)inst;
                 }
             } catch (Throwable ignore) {
                 // Try next

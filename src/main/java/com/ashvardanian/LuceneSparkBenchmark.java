@@ -149,9 +149,7 @@ public class LuceneSparkBenchmark {
 
         // Load base vectors and queries with optional limits
         System.out.print("📂 Loading vectors into Spark RDDs... ");
-        int maxBaseVectors = config.getMaxVectors() > 0
-                ? (int) Math.min(config.getMaxVectors(), Integer.MAX_VALUE)
-                : -1;
+        int maxBaseVectors = config.getMaxVectors() > 0 ? (int)Math.min(config.getMaxVectors(), Integer.MAX_VALUE) : -1;
         BinaryVectorLoader.VectorDataset baseVectors = BinaryVectorLoader.loadVectors(dataset.getBaseVectorPath(), 0,
                 maxBaseVectors);
         BinaryVectorLoader.VectorDataset queryVectors = BinaryVectorLoader.loadVectors(dataset.getQueryVectorPath());
@@ -240,7 +238,7 @@ public class LuceneSparkBenchmark {
 
         return new BenchmarkResult(indexingTime, totalSearchTime, metrics.pureSearchTimeMs, metrics.idRetrievalTimeMs,
                 throughputQPS, pureSearchQPS, metrics.recallAtK, metrics.ndcgAtK, memoryUsage, numBaseVectors,
-                baseVectors.getCols(), (int) numIndexedShards);
+                baseVectors.getCols(), (int)numIndexedShards);
     }
 
     private JavaPairRDD<Integer, VectorWithId> createVectorRDD(BinaryVectorLoader.VectorDataset vectors, int numShards,
@@ -472,7 +470,7 @@ public class LuceneSparkBenchmark {
 
     private long estimateDistributedMemoryUsage(int numVectors, int dimensions) {
         // Rough estimation: each vector takes ~4 bytes per dimension + index overhead
-        return (long) numVectors * dimensions * 4 * 3; // 3x for HNSW index overhead
+        return (long)numVectors * dimensions * 4 * 3; // 3x for HNSW index overhead
     }
 
     private BinaryVectorLoader.VectorIds loadVectorIds() {
