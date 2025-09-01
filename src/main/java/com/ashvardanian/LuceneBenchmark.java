@@ -17,7 +17,6 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.MergeScheduler.MergeSource;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
@@ -224,16 +223,21 @@ public class LuceneBenchmark {
         System.out.println(String.format("📊 Target segment size: 4GB (expecting ~%d segments for %,d MB index)",
                 estimatedSegments, estimatedIndexSizeMB));
 
-        TieredMergePolicy mergePolicy = new TieredMergePolicy();
-        mergePolicy.setMaxMergedSegmentMB(optimalSegmentSizeMB);
-        mergePolicy.setFloorSegmentMB(256); // Reasonable floor
+        // Use ThreadOptimizedMergePolicy to stop merging at 2x thread count
+        int indexingThreads = (config.getNumThreads() != -1)
+                ? config.getNumThreads()
+                : Runtime.getRuntime().availableProcessors();
+        ThreadOptimizedMergePolicy mergePolicy = new ThreadOptimizedMergePolicy(indexingThreads);
         indexConfig.setMergePolicy(mergePolicy);
+        System.out.println(
+                String.format("📊 Using ThreadOptimizedMergePolicy: will stop merging at %d segments (2x %d threads)",
+                        mergePolicy.getTargetSegmentCount(), indexingThreads));
 
         // Configure HNSW parameters (higher -> better recall, more memory/indexing time)
         indexConfig.setCodec(new CustomHnswCodec(config.getHnswMaxConn(), config.getHnswBeamWidth()));
 
         // Moderate RAM buffer so we flush into multiple segments
-        indexConfig.setRAMBufferSizeMB(512); // 512MB buffer
+        indexConfig.setRAMBufferSizeMB(16 * 1024 * 1024); // 16 GB buffer
         indexConfig.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
 
         // Configure aggressive concurrent merge scheduler for maximum speed with progress reporting
@@ -410,28 +414,7 @@ public class LuceneBenchmark {
         }
         indexProgress.complete(numBaseVectors);
 
-        // Commit changes
-        indexWriter.commit();
-
-        // Optional: Force merge to target segment count if we have too many segments
-        int targetSegments = (int)(estimatedIndexSizeMB / 4096);
-        if (targetSegments < 1)
-            targetSegments = 1;
-
-        // Check current segment count before deciding to force merge
-        DirectoryReader tempReader = DirectoryReader.open(indexWriter);
-        int currentSegments = tempReader.leaves().size();
-        tempReader.close();
-
-        if (currentSegments > targetSegments * 2) {
-            System.out.println(String.format("🔧 Force merging %d segments to %d target segments...", currentSegments,
-                    targetSegments));
-            long mergeStart = System.currentTimeMillis();
-            indexWriter.forceMerge(targetSegments);
-            long mergeTime = System.currentTimeMillis() - mergeStart;
-            System.out.println(String.format("✅ Force merge completed in %,d ms", mergeTime));
-        }
-
+        // ! Skip final commit to avoid triggering additional merges - close directly
         indexWriter.close();
 
         long indexingTime = System.currentTimeMillis() - startIndexing;

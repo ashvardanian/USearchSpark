@@ -1,6 +1,6 @@
 # USearchSpark
 
-Vector Search benchmark comparing [USearch](https://github.com/unum-cloud/usearch) HNSW across precisions (`f32`, `f16`, `bf16`, `i8`) vs [Lucene](https://github.com/apache/lucene) in-memory HNSW (`f32`) baseline, leveraging Apache [Spark](https://github.com/apache/spark) for distributed indexing and search.
+Vector Search benchmark comparing [USearch](https://github.com/unum-cloud/usearch) HNSW across precisions (`f32`, `f16`, `bf16`, `i8`) vs [Lucene](https://github.com/apache/lucene) in-memory HNSW (`f32`, `i8`) baselines, leveraging Apache [Spark](https://github.com/apache/spark) for distributed indexing and search.
 
 ## Quick Start
 
@@ -37,21 +37,23 @@ Benchmarks USearch (`f32`, `f16`, `bf16`, `i8`) against Lucene (`f32`) on Wiki d
 ┌──────────────┬──────────────┬──────────────┬──────────────┬─────────────┐
 │ Engine       │ Precision    │ IPS          │ QPS          │ Memory      │
 ├──────────────┼──────────────┼──────────────┼──────────────┼─────────────┤
-│ Lucene       │ F32          │ 19,514       │ 370          │ 55.2 GB     │
-│ USearch      │ F32          │ 95,998       │ 123,457      │ 96.0 GB     │
-│ USearch      │ F16          │ 123,223      │ 149,254      │ 64.0 GB     │
-│ USearch      │ BF16         │ 112,432      │ 129,870      │ 64.0 GB     │
-│ USearch      │ I8           │ 137,229      │ 163,934      │ 48.0 GB     │
+│ Lucene       │ F32          │ 20,665       │ 864          │ 49.0 GB     │
+│ Lucene       │ I8           │ 26,408       │ 1,218        │ 20.8 GB     │
+│ USearch      │ F32          │ 96,119       │ 126,582      │ 96.0 GB     │
+│ USearch      │ BF16         │ 113,090      │ 129,870      │ 64.0 GB     │
+│ USearch      │ F16          │ 124,297      │ 144,928      │ 64.0 GB     │
+│ USearch      │ I8           │ 137,329      │ 166,667      │ 48.0 GB     │
 └──────────────┴──────────────┴──────────────┴──────────────┴─────────────┘
 🎯 RECALL & NDCG METRICS
 ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
 │ Engine      │ Precision   │ Recall@10   │ NDCG@10     │ Recall@100  │ NDCG@100    │
 ├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤
-│ Lucene      │ F32         │ 88.38%      │ 87.52%      │ 93.36%      │ 91.80%      │
-│ USearch     │ F32         │ 90.16%      │ 88.64%      │ 95.59%      │ 95.26%      │
-│ USearch     │ F16         │ 90.27%      │ 88.55%      │ 95.77%      │ 95.26%      │
-│ USearch     │ BF16        │ 90.04%      │ 88.64%      │ 95.90%      │ 95.34%      │
-│ USearch     │ I8          │ 90.11%      │ 88.56%      │ 95.89%      │ 95.23%      │
+│ Lucene      │ F32         │ 90.00%      │ 88.17%      │ 94.70%      │ 93.34%      │
+│ Lucene      │ I8          │ 90.00%      │ 87.75%      │ 94.97%      │ 93.30%      │
+│ USearch     │ F32         │ 90.03%      │ 88.63%      │ 95.76%      │ 95.21%      │
+│ USearch     │ BF16        │ 90.12%      │ 88.46%      │ 95.62%      │ 95.21%      │
+│ USearch     │ F16         │ 90.27%      │ 88.59%      │ 95.78%      │ 95.31%      │
+│ USearch     │ I8          │ 90.34%      │ 88.66%      │ 95.81%      │ 95.31%      │
 └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
@@ -214,6 +216,9 @@ Here are some of the ideas considered and sometimes accepted:
 - Force merging segments when count exceeds optimal threshold.
 - Eliminated thread explosion where 191 threads were used per individual query.
 - Batch query processing using configurable `--batch-size` parameter.
+- `TieredMergePolicy` resulted in extremely slow single-threaded reductions by the end.
 - Replaced `ByteBuffersDirectory` with `DynamicByteBuffersDirectory` to handle >4GB indexes.
 - Aggressive concurrent merge scheduling with progress tracking.
 - Custom HNSW codec selection with fallback to best available implementation.
+- Using `forceMerge` before search queries to compact & optimize the index.
+- Committing the `IndexWriter` before search queries to trigger mergers.
