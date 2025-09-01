@@ -106,38 +106,30 @@ They are generally distributed in a form of binary matrix files, packing either 
 ### Unum UForm Wiki
 
 ```sh
-mkdir -p datasets/wiki_1M/ && \
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/base.1M.fbin -P datasets/wiki_1M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/query.public.100K.fbin -P datasets/wiki_1M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/groundtruth.public.100K.ibin -P datasets/wiki_1M/
+mkdir -p datasets/unum-wiki-1m/ && \
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/base.1M.fbin -P datasets/unum-wiki-1m/ &&
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/query.public.100K.fbin -P datasets/unum-wiki-1m/ &&
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-wiki-1m/resolve/main/groundtruth.public.100K.ibin -P datasets/unum-wiki-1m/
 ```
 
 ### Yandex Text-to-Image
 
 ```sh
-mkdir -p datasets/t2i_1B/ && \
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1B.fbin -P datasets/t2i_1B/ &&
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1M.fbin -P datasets/t2i_1B/ &&
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/query.public.100K.fbin -P datasets/t2i_1B/ &&
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/groundtruth.public.100K.ibin -P datasets/t2i_1B/
+mkdir -p datasets/yandex-t2i-1m/ && \
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1B.fbin -P datasets/yandex-t2i-1m/ &&
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/base.1M.fbin -P datasets/yandex-t2i-1m/ &&
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/query.public.100K.fbin -P datasets/yandex-t2i-1m/ &&
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/T2I/groundtruth.public.100K.ibin -P datasets/yandex-t2i-1m/
 ```
 
 ### Yandex Deep1B
 
 ```sh
-mkdir -p datasets/deep_1B/ && \
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.1B.fbin -P datasets/deep_1B/ &&
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.10M.fbin -P datasets/deep_1B/ &&
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin -P datasets/deep_1B/ &&
-    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin -P datasets/deep_1B/
-```
-
-### Arxiv with E5
-
-```sh
-mkdir -p datasets/arxiv_2M/ && \
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-arxiv-2m/resolve/main/abstract.e5-base-v2.fbin -P datasets/arxiv_2M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-arxiv-2m/resolve/main/title.e5-base-v2.fbin -P datasets/arxiv_2M/
+mkdir -p datasets/yandex-deep-1b/ && \
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.1B.fbin -P datasets/yandex-deep-1b/ &&
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/base.10M.fbin -P datasets/yandex-deep-1b/ &&
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/query.public.10K.fbin -P datasets/yandex-deep-1b/ &&
+    wget -nc https://storage.yandexcloud.net/yandex-research/ann-datasets/DEEP/groundtruth.public.10K.ibin -P datasets/yandex-deep-1b/
 ```
 
 ### Microsoft SpaceV
@@ -145,22 +137,22 @@ mkdir -p datasets/arxiv_2M/ && \
 The original dataset can be pulled in a USearch-compatible form from AWS S3:
 
 ```sh
-mkdir -p datasets/spacev_1B/ && \
-    aws s3 cp s3://bigger-ann/spacev-1b/ datasets/spacev_1B/ --recursive
+mkdir -p datasets/msft-spacev-1b/ && \
+    aws s3 cp s3://bigger-ann/spacev-1b/ datasets/msft-spacev-1b/ --recursive
 ```
 
 A smaller 100M dataset can be pulled from Hugging Face:
 
 ```sh
-mkdir -p datasets/spacev_100M/ && \
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/ids.100m.i32bin -P datasets/spacev_100M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/base.100m.i8bin -P datasets/spacev_100M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/query.30K.i8bin -P datasets/spacev_100M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/groundtruth.30K.i32bin -P datasets/spacev_100M/ &&
-    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/groundtruth.30K.f32bin -P datasets/spacev_100M/
+mkdir -p datasets/msft-spacev-100m/ && \
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/ids.100m.i32bin -P datasets/msft-spacev-100m/ &&
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/base.100m.i8bin -P datasets/msft-spacev-100m/ &&
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/query.30K.i8bin -P datasets/msft-spacev-100m/ &&
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/groundtruth.30K.i32bin -P datasets/msft-spacev-100m/ &&
+    wget -nc https://huggingface.co/datasets/unum-cloud/ann-spacev-100m/resolve/main/groundtruth.30K.f32bin -P datasets/msft-spacev-100m/
 ```
 
-## Kubernetes Cluster Setup
+## TODO: Kubernetes Cluster Setup
 
 For true distributed execution, create a local Kubernetes cluster using KIND (Kubernetes in Docker):
 
@@ -206,7 +198,6 @@ gradle spotlessApply
 Many attempts have been made to tune Lucene and squeeze better numbers out of it.
 In every case an improvement along one metric (IPS, QPS, Recall) has come at the cost of another.
 That's common for search engines and suggests that we are approaching the limitations of the engine.
-Recent optimizations doubled search performance from 380 QPS to 763 QPS.
 
 Here are some of the ideas considered and sometimes accepted:
 
